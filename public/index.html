@@ -95,6 +95,15 @@
     right:18px; top:calc(18px + env(safe-area-inset-top,0px));
     width:52px; height:52px; font-size:20px;
   }
+  #touchFire{
+    right:26px; bottom:calc(108px + env(safe-area-inset-bottom,0px));
+    width:58px; height:58px; font-size:22px;
+  }
+  #touchRun{
+    left:26px; bottom:calc(172px + env(safe-area-inset-bottom,0px));
+    width:56px; height:56px; font-size:20px;
+  }
+  #touchRun.active{ background:rgba(224,168,53,0.55); border-color:var(--amber); }
 
   /* extra clarity for touch devices in general (bigger text, more contrast) */
   body.touch-device #hud .hud-badge{ font-size:14px; padding:8px 14px; background:rgba(10,9,6,0.75); }
@@ -352,6 +361,8 @@
 
   <div id="touchControls" hidden>
     <div id="joyBase"><div id="joyKnob"></div></div>
+    <button id="touchRun" class="touch-btn">🏃</button>
+    <button id="touchFire" class="touch-btn">🔫</button>
     <button id="touchChat" class="touch-btn">💬</button>
     <button id="touchMenu" class="touch-btn">☰</button>
   </div>
@@ -494,7 +505,8 @@
   const itemsBadge = $('itemsBadge'), itemsCountEl = $('itemsCount'), itemsTotalEl = $('itemsTotal');
   const crosshair = $('crosshair');
   const touchControls = $('touchControls'), joyBase = $('joyBase'), joyKnob = $('joyKnob'),
-        touchChatBtn = $('touchChat'), touchMenuBtn = $('touchMenu');
+        touchChatBtn = $('touchChat'), touchMenuBtn = $('touchMenu'),
+        touchRunBtn = $('touchRun'), touchFireBtn = $('touchFire');
   const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
   document.body.classList.toggle('touch-device', isTouchDevice);
   const comms = $('comms'), commsLog = $('comms-log'), commsBar = $('comms-bar'), commsInput = $('commsInput');
@@ -572,7 +584,7 @@
     B: { name:'Jugador Verde',    accent:'#6fae52' }
   };
 
-  const CELL = 3.4;              // corridor cell size
+  const CELL = 4.2;              // corridor cell size (widened — más amplio)
   const WALL_H = 3.1;
   const EYE_H = 1.65;
   const MAZE_SIZES = [11, 13, 15]; // grows each level (level 1 made bigger on request)
@@ -583,11 +595,52 @@
   ============================================================ */
   const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias:true });
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  // A touch more realism: filmic tone mapping + correct color space so the
+  // warm lights roll off naturally instead of just clipping to white.
+  if (THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.15;
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 100);
   const pitchObject = new THREE.Object3D(); pitchObject.add(camera);
   const yawObject = new THREE.Object3D(); yawObject.add(pitchObject);
   scene.add(yawObject);
+
+  // First-person pistol viewmodel — a child of the camera itself, so it
+  // stays glued to the bottom-right of the view no matter which way the
+  // player looks, exactly like a real FPS weapon.
+  const gunGroup = new THREE.Group();
+  (function buildGun(){
+    const metalMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2f, roughness: 0.35, metalness: 0.7 });
+    const gripMat = new THREE.MeshStandardMaterial({ color: 0x1c1712, roughness: 0.8 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.11, 0.32), metalMat);
+    body.position.set(0, 0, -0.1);
+    gunGroup.add(body);
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.16, 10), metalMat);
+    barrel.rotation.x = Math.PI/2;
+    barrel.position.set(0, 0.015, -0.32);
+    gunGroup.add(barrel);
+    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.16, 0.09), gripMat);
+    grip.position.set(0, -0.11, 0.03);
+    grip.rotation.x = 0.28;
+    gunGroup.add(grip);
+    const sight = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.02, 0.02), metalMat);
+    sight.position.set(0, 0.065, -0.22);
+    gunGroup.add(sight);
+    const muzzleFlash = new THREE.PointLight(0xffcf6a, 0, 3, 2);
+    muzzleFlash.position.set(0, 0.015, -0.42);
+    gunGroup.add(muzzleFlash);
+    const flashMat = new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0 });
+    const flashMesh = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), flashMat);
+    flashMesh.position.copy(muzzleFlash.position);
+    gunGroup.add(flashMesh);
+    gunGroup.userData.muzzleFlash = muzzleFlash;
+    gunGroup.userData.flashMesh = flashMesh;
+  })();
+  gunGroup.position.set(0.22, -0.22, -0.38);
+  gunGroup.rotation.y = -0.05;
+  gunGroup.visible = false;
+  camera.add(gunGroup);
 
   function resize(){
     // On phones we force landscape visually (see .force-landscape CSS)
@@ -738,11 +791,11 @@
     draw(cnv.getContext('2d'), size);
     const tex = new THREE.CanvasTexture(cnv);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.anisotropy = 4;
+    tex.anisotropy = 8;
     return tex;
   }
 
-  const WALL_TEXTURE = makeCanvasTexture(256, function(ctx, s){
+  const WALL_TEXTURE = makeCanvasTexture(512, function(ctx, s){
     ctx.fillStyle = '#a3873c';
     ctx.fillRect(0, 0, s, s);
     ctx.globalAlpha = 0.16;
@@ -764,7 +817,7 @@
     ctx.fillRect(0, s*0.9, s, s*0.1);
   });
 
-  const FLOOR_TEXTURE = makeCanvasTexture(256, function(ctx, s){
+  const FLOOR_TEXTURE = makeCanvasTexture(512, function(ctx, s){
     ctx.fillStyle = '#7d6c46';
     ctx.fillRect(0, 0, s, s);
     const img = ctx.getImageData(0, 0, s, s);
@@ -786,7 +839,7 @@
     }
   });
 
-  const CEIL_TEXTURE = makeCanvasTexture(256, function(ctx, s){
+  const CEIL_TEXTURE = makeCanvasTexture(512, function(ctx, s){
     ctx.fillStyle = '#d9d2b6';
     ctx.fillRect(0, 0, s, s);
     const tile = s/2;
@@ -805,6 +858,30 @@
     ctx.beginPath(); ctx.arc(sx, sy, sr, 0, Math.PI*2); ctx.fill();
   });
 
+  // Transparent blood-splatter decal, stamped onto a random subset of walls
+  // per level (see addWall below) instead of baked into the tiling wall
+  // material, so stains read as distinct marks rather than a repeating print.
+  const BLOOD_TEXTURE = makeCanvasTexture(256, function(ctx, s){
+    const blobs = 4 + Math.floor(Math.random()*4);
+    for (let i=0;i<blobs;i++){
+      const cx = s*0.2 + Math.random()*s*0.6, cy = s*0.08 + Math.random()*s*0.35;
+      const r = 8 + Math.random()*26;
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0, 'rgba(96,8,10,0.9)');
+      grad.addColorStop(0.55, 'rgba(74,6,8,0.6)');
+      grad.addColorStop(1, 'rgba(74,6,8,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+      const dripLen = r*1.4 + Math.random()*s*0.5;
+      const dripW = 2 + Math.random()*5;
+      ctx.fillStyle = 'rgba(60,5,7,0.55)';
+      for (let dy=0; dy<dripLen; dy+=3){
+        const wobble = Math.sin(dy*0.3+i)*1.4;
+        ctx.fillRect(cx - dripW/2 + wobble, cy + dy, dripW*(1 - dy/(dripLen*1.6)), 3);
+      }
+    }
+  });
+
   function buildMaze(level, seed){
     clearLevel();
     mazeSize = MAZE_SIZES[Math.min(level-1, MAZE_SIZES.length-1)];
@@ -815,7 +892,7 @@
     // Hazy, sickly-yellow fog and ambient tone instead of a plain dark
     // green box — this is the biggest single factor in reading as
     // "backrooms" rather than a generic dungeon corridor.
-    scene.fog = new THREE.Fog(0x71673f, isTouchDevice ? 5.5 : 4, isTouchDevice ? 20 : 17);
+    scene.fog = new THREE.Fog(0x71673f, isTouchDevice ? 6.5 : 5, isTouchDevice ? 24 : 21);
     scene.background = new THREE.Color(0x241d0c);
 
     const total = mazeSize * CELL;
@@ -854,12 +931,36 @@
     const wallGeomH = new THREE.BoxGeometry(CELL, WALL_H, 0.2);
     const wallGeomV = new THREE.BoxGeometry(0.2, WALL_H, CELL);
 
+    // Same seed on both clients so the blood shows up on the same walls for
+    // both players, not just randomly per-browser.
+    const bloodRng = mulberry32((seed + level*97 + 4242) >>> 0);
+    const bloodMat = new THREE.MeshBasicMaterial({
+      map: BLOOD_TEXTURE, transparent: true, depthWrite: false, side: THREE.DoubleSide
+    });
+
     function addWall(x, z, horizontal){
       const mesh = new THREE.Mesh(horizontal ? wallGeomH : wallGeomV, wallMat);
       mesh.position.set(x, WALL_H/2, z);
       levelGroup.add(mesh);
       const hx = horizontal ? CELL/2 : 0.12, hz = horizontal ? 0.12 : CELL/2;
       wallBoxes.push({ minX:x-hx, maxX:x+hx, minZ:z-hz, maxZ:z+hz });
+
+      if (bloodRng() < 0.17){
+        const decalW = CELL * (0.45 + bloodRng()*0.4);
+        const decalH = WALL_H * (0.5 + bloodRng()*0.4);
+        const decal = new THREE.Mesh(new THREE.PlaneGeometry(decalW, decalH), bloodMat);
+        const yOff = WALL_H - decalH/2 - 0.05;
+        const along = (bloodRng()-0.5) * (CELL - decalW*0.6);
+        const face = bloodRng() > 0.5 ? 1 : -1;
+        if (horizontal){
+          decal.position.set(x + along, yOff, z + face*0.11);
+          if (face < 0) decal.rotation.y = Math.PI;
+        } else {
+          decal.position.set(x + face*0.11, yOff, z + along);
+          decal.rotation.y = face > 0 ? Math.PI/2 : -Math.PI/2;
+        }
+        levelGroup.add(decal);
+      }
     }
 
     for (let y=0;y<mazeSize;y++){
@@ -1134,6 +1235,7 @@
     screenWin.hidden = false;
     hud.hidden = true; crosshair.hidden = true; comms.hidden = true;
     touchControls.hidden = true;
+    gunGroup.visible = false;
   }
 
   /* ============================================================
@@ -1518,6 +1620,72 @@
   }
 
   /* ============================================================
+     6b. Pistol — kills the monster on a hit, forcing it to respawn
+  ============================================================ */
+  const raycaster = new THREE.Raycaster();
+  const WEAPON_RANGE = 18;
+  const FIRE_COOLDOWN = 0.35;
+  let lastShotAt = -999;
+
+  function playGunshotSound(){
+    if (!audioCtx) return;
+    try{
+      const now = audioCtx.currentTime;
+      const dur = 0.16;
+      const buffer = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate*dur), audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i=0;i<data.length;i++){ data[i] = (Math.random()*2-1) * Math.pow(1 - i/data.length, 2); }
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      const ng = audioCtx.createGain();
+      ng.gain.value = Math.min(1, (volume/100) * 1.6);
+      noise.connect(ng); ng.connect(audioCtx.destination);
+      noise.start(now);
+
+      const osc = audioCtx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(45, now + dur);
+      const og = audioCtx.createGain();
+      og.gain.value = Math.min(1, (volume/100) * 0.9);
+      osc.connect(og); og.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + dur + 0.02);
+    }catch(e){ /* ignore */ }
+  }
+
+  function muzzleFlashFx(){
+    const mf = gunGroup.userData.muzzleFlash, fm = gunGroup.userData.flashMesh;
+    if (!mf) return;
+    mf.intensity = 2.2;
+    fm.material.opacity = 0.9;
+    setTimeout(function(){ mf.intensity = 0; fm.material.opacity = 0; }, 60);
+    gunGroup.position.z += 0.03; // tiny recoil kick
+    setTimeout(function(){ gunGroup.position.z -= 0.03; }, 70);
+  }
+
+  function killMonster(){
+    playGunshotSound();
+    if (navigator.vibrate){ try{ navigator.vibrate(30); }catch(e){} }
+    pushLog('sys', null, '¡Le diste al screamer! Va a tardar un rato en volver a aparecer.');
+    despawnMonster();
+  }
+
+  function shoot(){
+    if (gameState !== 'playing' || chatOpen) return;
+    const now = performance.now() / 1000;
+    if (now - lastShotAt < FIRE_COOLDOWN) return;
+    lastShotAt = now;
+    playGunshotSound();
+    muzzleFlashFx();
+    if (!monster || !monster.visible) return;
+    raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+    const hits = raycaster.intersectObject(monster, true);
+    if (hits.length && hits[0].distance <= WEAPON_RANGE){
+      killMonster();
+    }
+  }
+
+  /* ============================================================
      7. Movement + look
   ============================================================ */
   const keys = Object.create(null);
@@ -1604,7 +1772,7 @@
       const el = document.elementFromPoint(t.clientX, t.clientY);
       if (joyTouchId === null && el && (el === joyBase || el === joyKnob || joyBase.contains(el))){
         joyTouchId = t.identifier;
-      } else if (lookTouchId === null && el && (el === touchChatBtn || el === touchMenuBtn)){
+      } else if (lookTouchId === null && el && (el === touchChatBtn || el === touchMenuBtn || el === touchRunBtn || el === touchFireBtn)){
         // let the button's own handler deal with it
       } else if (lookTouchId === null){
         lookTouchId = t.identifier;
@@ -1674,6 +1842,37 @@
     else if (gameState === 'paused') resumeGame();
   }, { passive: false });
 
+  let touchRunning = false;
+  touchRunBtn.addEventListener('touchstart', function(e){
+    e.preventDefault();
+    touchRunning = true;
+    touchRunBtn.classList.add('active');
+  }, { passive: false });
+  touchRunBtn.addEventListener('touchend', function(e){
+    e.preventDefault();
+    touchRunning = false;
+    touchRunBtn.classList.remove('active');
+  }, { passive: false });
+  touchRunBtn.addEventListener('touchcancel', function(){
+    touchRunning = false;
+    touchRunBtn.classList.remove('active');
+  }, { passive: true });
+
+  touchFireBtn.addEventListener('touchstart', function(e){
+    e.preventDefault();
+    if (gameState === 'playing' && !chatOpen) shoot();
+  }, { passive: false });
+
+  // Desktop: fire only once the pointer is already locked, so this never
+  // fights with the separate click handler that requests pointer lock in
+  // the first place.
+  canvas.addEventListener('mousedown', function(e){
+    if (e.button !== 0) return;
+    if (gameState === 'playing' && document.pointerLockElement === canvas && !chatOpen){
+      shoot();
+    }
+  });
+
   function updateMovement(delta){
     if (!isRigActive()) return;
     let mx = 0, mz = 0;
@@ -1688,7 +1887,7 @@
     if (mx !== 0 || mz !== 0){
       const len = Math.hypot(mx, mz);
       if (len > 1){ mx /= len; mz /= len; }
-      const speed = keys['shift'] ? 4.6 : 2.7;
+      const speed = (keys['shift'] || touchRunning) ? 4.6 : 2.7;
       const yaw = yawObject.rotation.y;
       const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
       const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -1763,12 +1962,14 @@
     $('pauseSub').textContent = 'Laberinto ' + currentLevel + ' de 3';
     hud.hidden = true; crosshair.hidden = true;
     touchControls.hidden = true;
+    gunGroup.visible = false;
   }
   function resumeGame(){
     screenPause.hidden = true;
     gameState = 'playing';
     hud.hidden = false; crosshair.hidden = false;
     touchControls.hidden = !isTouchDevice;
+    gunGroup.visible = true;
     requestLock();
   }
   $('resumeBtn').addEventListener('click', resumeGame);
@@ -1884,6 +2085,7 @@
     screenWait.hidden = true; screenStart.hidden = true;
     hud.hidden = false; crosshair.hidden = false; comms.hidden = false;
     touchControls.hidden = !isTouchDevice;
+    gunGroup.visible = true;
     currentLevel = 1;
     buildMaze(currentLevel, gameSeed); // also (re)starts the monster's spawn timer
     pushLog('sys', null, 'Eres el ' + THEMES[myRole].name + '. Busquen juntos la salida — y cuidado con los sustos.');
