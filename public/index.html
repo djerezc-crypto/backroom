@@ -954,7 +954,15 @@
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   }
 
-  canvas.addEventListener('touchstart', function(e){
+  // NOTE: #joyBase/#joyKnob are separate DOM elements layered visually on
+  // top of the canvas (with their own pointer-events:auto so the knob is
+  // draggable). That means a touch that lands on the joystick is targeted
+  // at joyBase/joyKnob, NOT at canvas, and per the touch "target retention"
+  // rule every follow-up touchmove/touchend for that finger keeps targeting
+  // joyBase too — a canvas-only listener would never see it. So these
+  // handlers are attached to BOTH canvas (for look-drag, and taps on open
+  // floor space) and joyBase (for the joystick itself).
+  function onTouchStart(e){
     if (gameState !== 'playing') return;
     for (const t of e.changedTouches){
       const el = document.elementFromPoint(t.clientX, t.clientY);
@@ -968,9 +976,10 @@
       }
     }
     e.preventDefault();
-  }, { passive: false });
+  }
 
-  canvas.addEventListener('touchmove', function(e){
+  function onTouchMove(e){
+    if (gameState !== 'playing') return;
     for (const t of e.changedTouches){
       if (t.identifier === joyTouchId){
         const c = joyBaseCenter();
@@ -991,7 +1000,7 @@
       }
     }
     e.preventDefault();
-  }, { passive: false });
+  }
 
   function endTouch(e){
     for (const t of e.changedTouches){
@@ -1002,8 +1011,16 @@
       if (t.identifier === lookTouchId) lookTouchId = null;
     }
   }
+
+  canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+  canvas.addEventListener('touchmove', onTouchMove, { passive: false });
   canvas.addEventListener('touchend', endTouch, { passive: true });
   canvas.addEventListener('touchcancel', endTouch, { passive: true });
+
+  joyBase.addEventListener('touchstart', onTouchStart, { passive: false });
+  joyBase.addEventListener('touchmove', onTouchMove, { passive: false });
+  joyBase.addEventListener('touchend', endTouch, { passive: true });
+  joyBase.addEventListener('touchcancel', endTouch, { passive: true });
 
   touchInteractBtn.addEventListener('touchstart', function(e){
     e.preventDefault();
