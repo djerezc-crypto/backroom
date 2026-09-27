@@ -100,7 +100,7 @@
     width:58px; height:58px; font-size:22px;
   }
   #touchRun{
-    left:26px; bottom:calc(172px + env(safe-area-inset-bottom,0px));
+    right:96px; bottom:calc(108px + env(safe-area-inset-bottom,0px));
     width:56px; height:56px; font-size:20px;
   }
   #touchRun.active{ background:rgba(224,168,53,0.55); border-color:var(--amber); }
@@ -1015,24 +1015,27 @@
     const spawnA = { x: worldX(0), z: worldZ(0) };
     const spawnB = { x: worldX(mazeSize-1), z: worldZ(mazeSize-1) };
     const ex = Math.floor(mazeSize/2), ey = Math.floor(mazeSize/2);
-    exitPos = { x: worldX(ex), z: worldZ(ey) };
+    const exitCellCenter = { x: worldX(ex), z: worldZ(ey) };
 
-    // The exit is a locked door, not a pad you just walk onto — it only
-    // opens once every scattered object has been picked up. Orient it
-    // along whichever pair of opposite walls is actually open at that
-    // cell, so it sits flush across the real corridor.
+    // The exit is a locked door, not a pad floating in open space — it sits
+    // flush in the wall gap between the exit cell and whichever neighbor is
+    // actually open (like a real doorway between two rooms), and only opens
+    // once every scattered object in this level has been picked up.
     const exitCell = cells[ey][ex];
-    // true when the open corridor through this cell runs north/south, so
-    // the door should stand across it facing that way (blocking Z travel)
-    const doorBlocksNS = !exitCell.N || !exitCell.S;
+    let doorAxisNS = true, doorX = exitCellCenter.x, doorZ = exitCellCenter.z;
+    if (!exitCell.N && ey > 0){ doorAxisNS = true; doorZ = exitCellCenter.z - CELL/2; }
+    else if (!exitCell.S && ey < mazeSize-1){ doorAxisNS = true; doorZ = exitCellCenter.z + CELL/2; }
+    else if (!exitCell.E && ex < mazeSize-1){ doorAxisNS = false; doorX = exitCellCenter.x + CELL/2; }
+    else if (!exitCell.W && ex > 0){ doorAxisNS = false; doorX = exitCellCenter.x - CELL/2; }
+    exitPos = { x: doorX, z: doorZ };
     doorGroup = buildDoor();
-    doorGroup.position.set(exitPos.x, 0, exitPos.z);
-    doorGroup.rotation.y = doorBlocksNS ? 0 : Math.PI/2;
+    doorGroup.position.set(doorX, 0, doorZ);
+    doorGroup.rotation.y = doorAxisNS ? 0 : Math.PI/2;
     levelGroup.add(doorGroup);
     const doorHalfLong = CELL/2, doorHalfShort = 0.14;
-    doorBoxRef = doorBlocksNS
-      ? { minX: exitPos.x-doorHalfLong, maxX: exitPos.x+doorHalfLong, minZ: exitPos.z-doorHalfShort, maxZ: exitPos.z+doorHalfShort }
-      : { minX: exitPos.x-doorHalfShort, maxX: exitPos.x+doorHalfShort, minZ: exitPos.z-doorHalfLong, maxZ: exitPos.z+doorHalfLong };
+    doorBoxRef = doorAxisNS
+      ? { minX: doorX-doorHalfLong, maxX: doorX+doorHalfLong, minZ: doorZ-doorHalfShort, maxZ: doorZ+doorHalfShort }
+      : { minX: doorX-doorHalfShort, maxX: doorX+doorHalfShort, minZ: doorZ-doorHalfLong, maxZ: doorZ+doorHalfLong };
     wallBoxes.push(doorBoxRef);
 
     // Scatter the objects you need to find before the door will open, in
@@ -1201,7 +1204,10 @@
       }
       levelReached = true;
       sendGameEvent('exit', { level: currentLevel });
-      advanceLevel();
+      // A short beat to actually walk through the open doorway before the
+      // screen cuts to the next room, instead of transitioning the instant
+      // you brush past it.
+      setTimeout(advanceLevel, 380);
     }
   }
 
@@ -1213,8 +1219,8 @@
   }
 
   function advanceLevel(){
-    bannerTitle.textContent = currentLevel < 3 ? '¡Encontraron la salida!' : '¡Escaparon del laberinto!';
-    bannerSub.textContent = currentLevel < 3 ? 'Preparando un laberinto más grande…' : '';
+    bannerTitle.textContent = currentLevel < 3 ? '¡Cruzaron la puerta!' : '¡Escaparon del laberinto!';
+    bannerSub.textContent = currentLevel < 3 ? 'La puerta se cierra detrás de ustedes… entrando a la siguiente sala' : '';
     bannerEl.hidden = false;
     exitPointerLockSafely();
     setTimeout(function(){
