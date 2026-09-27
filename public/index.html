@@ -2628,8 +2628,15 @@
     for (let i=0;i<zones.length;i++){
       const zone = zones[i];
       if (zone.doorGroup && zone.doorUnlocked){
-        const target = -Math.PI * 0.62;
-        zone.doorGroup.userData.openAngle += (target - zone.doorGroup.userData.openAngle) * Math.min(1, delta*2.2);
+        // Auto-door: swings open only while you're right at it, and closes
+        // itself again once you've walked through to the other side (or
+        // stepped back away from it) — it doesn't just stay open forever.
+        const dx = yawObject.position.x - zone.exitPos.x;
+        const dz = yawObject.position.z - zone.exitPos.z;
+        const near = Math.abs(dx) < CELL*1.1 && Math.abs(dz) < CELL*0.9;
+        const target = near ? -Math.PI * 0.62 : 0;
+        const ease = near ? 2.2 : 1.6;
+        zone.doorGroup.userData.openAngle += (target - zone.doorGroup.userData.openAngle) * Math.min(1, delta*ease);
         zone.doorGroup.userData.pivot.rotation.y = zone.doorGroup.userData.openAngle;
       }
     }
