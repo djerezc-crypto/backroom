@@ -890,6 +890,50 @@
     map: BLOOD_TEXTURE, transparent: true, depthWrite: false, side: THREE.DoubleSide
   });
   const FIXTURE_MAT = new THREE.MeshBasicMaterial({ color: 0xf6faf2 });
+  const FIXTURE_DEAD_MAT = new THREE.MeshBasicMaterial({ color: 0x2a2e28 });
+  // A faint downward light shaft under each working fixture — cheap, additive,
+  // no extra lighting cost, just sells the idea of a spotlight cone.
+  const LIGHT_CONE_MAT = new THREE.MeshBasicMaterial({
+    color: 0xf5faf0, transparent: true, opacity: 0.05, side: THREE.DoubleSide,
+    depthWrite: false, blending: THREE.AdditiveBlending
+  });
+  // Rare environmental-storytelling wall signage, stamped like the blood
+  // decals: a handful of canvas-rendered phrases scattered thinly through
+  // the map.
+  const SIGN_WORDS = ['SALIDA', 'NO HAY SALIDA', 'SILENCIO', 'AYUDA', 'NO MIRES ATRAS'];
+  const SIGN_TEXTURES = SIGN_WORDS.map(function(word){
+    return makeCanvasTexture(256, function(ctx, s){
+      ctx.clearRect(0, 0, s, s);
+      ctx.save();
+      ctx.translate(s/2, s/2);
+      ctx.rotate((Math.random()-0.5) * 0.08);
+      ctx.font = 'bold ' + Math.floor(s*0.13) + 'px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(120,20,20,0.55)';
+      ctx.globalAlpha = 0.7;
+      ctx.fillText(word, 2, 2);
+      ctx.fillStyle = 'rgba(210,60,55,0.7)';
+      ctx.fillText(word, 0, 0);
+      ctx.restore();
+    });
+  });
+  function pickSignMat(rng){
+    const idx = Math.min(SIGN_TEXTURES.length-1, Math.floor(rng()*SIGN_TEXTURES.length));
+    return new THREE.MeshBasicMaterial({
+      map: SIGN_TEXTURES[idx], transparent: true, depthWrite: false, side: THREE.DoubleSide
+    });
+  }
+  // Low-density decorative clutter (visual only, no collision, so the maze's
+  // single walkable path never gets blocked) — square support columns tucked
+  // toward a corner of the cell, in the same faded ceramic/metal palette.
+  const COLUMN_MAT = new THREE.MeshStandardMaterial({ color: 0xb8b6a6, roughness: 0.85 });
+  function buildColumn(x, z){
+    const col = new THREE.Mesh(new THREE.BoxGeometry(0.32, WALL_H, 0.32), COLUMN_MAT);
+    col.position.set(x, WALL_H/2, z);
+    levelGroup.add(col);
+    return col;
+  }
   const CONNECTOR_GAP = CELL * 1.15; // short vestibule where each connecting door lives
 
   // Which world-X index a room occupies, given how far along the chain it is.
@@ -942,11 +986,17 @@
 
     const wallGeomH = new THREE.BoxGeometry(CELL, WALL_H, 0.2);
     const wallGeomV = new THREE.BoxGeometry(0.2, WALL_H, CELL);
-    function addFixture(x, z){
-      const fixture = new THREE.Mesh(new THREE.PlaneGeometry(CELL*0.5, CELL*0.16), FIXTURE_MAT);
+    function addFixture(x, z, dead){
+      const fixture = new THREE.Mesh(new THREE.PlaneGeometry(CELL*0.5, CELL*0.16), dead ? FIXTURE_DEAD_MAT : FIXTURE_MAT);
       fixture.rotation.x = Math.PI/2;
       fixture.position.set(x, WALL_H - 0.02, z);
       levelGroup.add(fixture);
+      if (!dead){
+        const coneH = WALL_H * 0.85;
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(CELL*0.42, coneH, 12, 1, true), LIGHT_CONE_MAT);
+        cone.position.set(x, WALL_H - 0.02 - coneH/2, z);
+        levelGroup.add(cone);
+      }
     }
 
     // Lay the rooms out left to right, each centered on its own X offset,
@@ -997,13 +1047,15 @@
       // Same seed on both clients so the blood shows up on the same walls
       // for both players, not just randomly per-browser.
       const bloodRng = mulberry32((seed + level*97 + 4242) >>> 0);
+      const signRng = mulberry32((seed + level*97 + 6161) >>> 0);
       function addWall(x, z, horizontal){
         const mesh = new THREE.Mesh(horizontal ? wallGeomH : wallGeomV, WALL_MAT);
         mesh.position.set(x, WALL_H/2, z);
         levelGroup.add(mesh);
         const hx = horizontal ? CELL/2 : 0.12, hz = horizontal ? 0.12 : CELL/2;
         wallBoxes.push({ minX:x-hx, maxX:x+hx, minZ:z-hz, maxZ:z+hz });
-        if (bloodRng() < 0.17){
+        const hasBlood = bloodRng() < 0.17;
+        if (hasBlood){
           const decalW = CELL * (0.45 + bloodRng()*0.4);
           const decalH = WALL_H * (0.5 + bloodRng()*0.4);
           const decal = new THREE.Mesh(new THREE.PlaneGeometry(decalW, decalH), BLOOD_MAT);
@@ -1015,6 +1067,20 @@
             if (face < 0) decal.rotation.y = Math.PI;
           } else {
             decal.position.set(x + face*0.11, yOff, z + along);
+            decal.rotation.y = face > 0 ? Math.PI/2 : -Math.PI/2;
+          }
+          levelGroup.add(decal);
+        } else if (signRng() < 0.035){
+          // Rare environmental-storytelling signage on an otherwise clean wall.
+          const decalW = CELL * 0.62, decalH = WALL_H * 0.22;
+          const decal = new THREE.Mesh(new THREE.PlaneGeometry(decalW, decalH), pickSignMat(signRng));
+          const yOff = WALL_H * 0.58;
+          const face = signRng() > 0.5 ? 1 : -1;
+          if (horizontal){
+            decal.position.set(x, yOff, z + face*0.11);
+            if (face < 0) decal.rotation.y = Math.PI;
+          } else {
+            decal.position.set(x + face*0.11, yOff, z);
             decal.rotation.y = face > 0 ? Math.PI/2 : -Math.PI/2;
           }
           levelGroup.add(decal);
@@ -1053,15 +1119,38 @@
       const lightRng = mulberry32((seed + level*97 + 555) >>> 0);
       const pipeRng = mulberry32((seed + level*97 + 8888) >>> 0);
       const extraLightCount = Math.max(3, Math.floor(size*size/9));
+      const usedFixtureCells = [];
       for (let li=0; li<extraLightCount; li++){
         const lx = Math.floor(lightRng()*size), ly = Math.floor(lightRng()*size);
-        const l = new THREE.PointLight(0xeef5ea, 0.7 * mobileBoost, CELL*3.4, 2);
-        l.position.set(worldX(lx), WALL_H-0.4, worldZ(ly));
-        levelGroup.add(l);
-        activeLights.push({ light: l, base: 0.7, phase: Math.random()*100 });
-        addFixture(worldX(lx), worldZ(ly));
+        // A small chance a fixture is burnt out — dark, no light, just
+        // atmosphere and variety (mirrors real busted office lighting).
+        const dead = lightRng() < 0.07;
+        if (!dead){
+          const l = new THREE.PointLight(0xeef5ea, 0.7 * mobileBoost, CELL*3.4, 2);
+          l.position.set(worldX(lx), WALL_H-0.4, worldZ(ly));
+          levelGroup.add(l);
+          activeLights.push({ light: l, base: 0.7, phase: Math.random()*100 });
+        }
+        addFixture(worldX(lx), worldZ(ly), dead);
+        usedFixtureCells.push(lx + ',' + ly);
         if (pipeRng() < 0.4){
           buildPipeCluster(pipeRng, worldX(lx), worldZ(ly));
+        }
+      }
+
+      // Low-density decorative columns scattered through open interior
+      // cells — visual clutter only (no collision), so the maze's solvable
+      // path is never at risk of being blocked.
+      const propRng = mulberry32((seed + level*97 + 2323) >>> 0);
+      for (let y=0;y<size;y++){
+        for (let x=0;x<size;x++){
+          const isEntry = (i > 0 && x === enx && y === eny) || (i === 0 && x===0 && y===0) || (i===0 && x===size-1 && y===size-1);
+          const isExit = x === ex && y === ey;
+          if (isEntry || isExit) continue;
+          if (propRng() < 0.03){
+            const jitter = CELL * 0.28;
+            buildColumn(worldX(x) + (propRng()-0.5)*jitter, worldZ(y) + (propRng()-0.5)*jitter);
+          }
         }
       }
 
@@ -2023,6 +2112,7 @@
     }
   });
 
+  let bobPhase = 0, bobEase = 0;
   function updateMovement(delta){
     if (!isRigActive()) return;
     let mx = 0, mz = 0;
@@ -2034,10 +2124,13 @@
       if (keys['a']) mx -= 1;
       if (keys['d']) mx += 1;
     }
+    const isRunning = keys['shift'] || touchRunning;
+    let moving = false;
     if (mx !== 0 || mz !== 0){
+      moving = true;
       const len = Math.hypot(mx, mz);
       if (len > 1){ mx /= len; mz /= len; }
-      const speed = (keys['shift'] || touchRunning) ? 4.6 : 2.7;
+      const speed = isRunning ? 4.6 : 2.7;
       const yaw = yawObject.rotation.y;
       const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
       const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -2052,6 +2145,17 @@
     }
     checkItemProximity();
     checkExitProximity();
+
+    // head-bob: eases in while walking/running, eases back out when idle
+    const bobTarget = moving ? 1 : 0;
+    bobEase += (bobTarget - bobEase) * Math.min(1, delta * 6);
+    if (moving){
+      bobPhase += delta * (isRunning ? 13.5 : 9.2);
+    }
+    const bobAmp = (isRunning ? 0.055 : 0.032) * bobEase;
+    camera.position.y = Math.abs(Math.sin(bobPhase)) * bobAmp;
+    camera.position.x = Math.sin(bobPhase * 0.5) * bobAmp * 0.6;
+    gunGroup.position.y = -0.22 + Math.sin(bobPhase) * bobAmp * 0.7;
   }
 
   /* ============================================================
