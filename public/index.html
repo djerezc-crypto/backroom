@@ -809,6 +809,12 @@
   const peerTarget = { x:0, z:0, ry:0 };
 
   const FACE_TEXTURE = new THREE.TextureLoader().load('face.png');
+  // The face plane is rotated 180° (see buildHumanFigure) so it faces the
+  // avatar's forward direction instead of backwards; that rotation mirrors
+  // the image, so we mirror the texture's U axis back to undo it.
+  FACE_TEXTURE.wrapS = THREE.RepeatWrapping;
+  FACE_TEXTURE.repeat.x = -1;
+  FACE_TEXTURE.offset.x = 1;
 
   // Fallback shirt/pants + a fixed skin tone, derived from the game seed +
   // role, used only until the peer's own chosen colors (picked on the
@@ -837,13 +843,22 @@
     grp.add(head);
 
     // the character's face — a flat photo mounted on the front of the
-    // head, facing the same "forward" direction as the walk direction
-    // (-Z at rotation.y = 0, matching the camera's own yaw convention)
-    const face = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.3, 0.37),
-      new THREE.MeshBasicMaterial({ map: FACE_TEXTURE, transparent:true })
-    );
-    face.position.set(0, head.position.y - 0.01, -0.165);
+    // head, facing the same "forward" direction the avatar walks in
+    // (-Z at rotation.y = 0, matching the camera's own yaw convention).
+    // A plain PlaneGeometry's normal points +Z, which is BACKWARDS from
+    // the avatar's forward direction — that's what made the photo show
+    // up wrong. Rotating it 180° around Y fixes the facing direction,
+    // but that rotation also mirrors the image left/right, so we cancel
+    // that out by mirroring the texture's U coordinate back. DoubleSide
+    // is a safety net so the photo is never invisible from any angle.
+    const faceMat = new THREE.MeshBasicMaterial({
+      map: FACE_TEXTURE,
+      transparent: true,
+      side: THREE.DoubleSide
+    });
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.28), faceMat);
+    face.rotation.y = Math.PI;
+    face.position.set(0, head.position.y + 0.01, -0.155);
     grp.add(face);
 
     // arms/legs pivot at their TOP (shoulder / hip) so rotating the mesh
