@@ -1374,18 +1374,31 @@
     return grp;
   }
 
-  // A collectible object: a small glowing crystal that slowly bobs and
-  // spins so it reads clearly against the dim, hazy corridors.
+  // A collectible object: a small wrapped lump sitting on a torn scrap of
+  // foil, with a faint warm glint (not a magic glow) so it still reads
+  // against the dim, hazy corridors, and a slow tumble to draw the eye.
   function buildItemMesh(){
     const grp = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({
-      color: 0x6fe0e8, emissive: 0x2fa6ae, emissiveIntensity: 0.9, roughness: 0.3
+
+    const wrapMat = new THREE.MeshStandardMaterial({
+      color: 0xcac3ac, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide
     });
-    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), mat);
-    grp.add(gem);
-    const glow = new THREE.PointLight(0x6fe0e8, 0.9, 2.6, 2);
+    const wrap = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.3), wrapMat);
+    wrap.rotation.x = -Math.PI/2;
+    wrap.rotation.z = 0.3;
+    wrap.position.y = -0.22;
+    grp.add(wrap);
+
+    const pasteMat = new THREE.MeshStandardMaterial({
+      color: 0xb99a68, roughness: 0.95, metalness: 0
+    });
+    const lump = new THREE.Mesh(new THREE.IcosahedronGeometry(0.15, 0), pasteMat);
+    lump.scale.set(1, 0.5, 0.85);
+    grp.add(lump);
+
+    const glow = new THREE.PointLight(0xffe6bd, 0.4, 1.9, 2);
     grp.add(glow);
-    grp.userData.gem = gem;
+    grp.userData.gem = lump;
     return grp;
   }
 
