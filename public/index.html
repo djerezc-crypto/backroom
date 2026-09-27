@@ -602,7 +602,7 @@
   // warm lights roll off naturally instead of just clipping to white.
   if (THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
+  renderer.toneMappingExposure = 0.78;
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 100);
   const pitchObject = new THREE.Object3D(); pitchObject.add(camera);
@@ -780,7 +780,7 @@
   // mustard wallpaper, a shallow animated water layer over the floor, and
   // cool white light instead of a sickly yellow glow.
   const WALL_TEXTURE = makeCanvasTexture(512, function(ctx, s){
-    ctx.fillStyle = '#e7e4da';
+    ctx.fillStyle = '#8f8d7f';
     ctx.fillRect(0, 0, s, s);
     const tile = s/8;
     ctx.strokeStyle = 'rgba(120,118,105,0.4)';
@@ -807,7 +807,7 @@
   // in buildWorld — same pale ceramic tile as the walls, just a touch
   // greener from sitting underwater.
   const FLOOR_TEXTURE = makeCanvasTexture(512, function(ctx, s){
-    ctx.fillStyle = '#d7d6c9';
+    ctx.fillStyle = '#666254';
     ctx.fillRect(0, 0, s, s);
     const tile = s/8;
     ctx.strokeStyle = 'rgba(100,105,90,0.45)';
@@ -826,7 +826,7 @@
   });
 
   const CEIL_TEXTURE = makeCanvasTexture(512, function(ctx, s){
-    ctx.fillStyle = '#f3f1e8';
+    ctx.fillStyle = '#76744a';
     ctx.fillRect(0, 0, s, s);
     const tile = s/2;
     ctx.strokeStyle = 'rgba(130,128,115,0.55)';
@@ -937,6 +937,73 @@
     levelGroup.add(col);
     return col;
   }
+
+  // A pooled (not splattered) blood-stain texture, for the floor rather
+  // than the walls — bigger, rounder, no drips.
+  const FLOOR_BLOOD_TEXTURE = makeCanvasTexture(256, function(ctx, s){
+    const blobs = 3 + Math.floor(Math.random()*3);
+    for (let i=0;i<blobs;i++){
+      const cx = s*0.28 + Math.random()*s*0.44, cy = s*0.28 + Math.random()*s*0.44;
+      const r = 34 + Math.random()*76;
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      grad.addColorStop(0, 'rgba(88,7,9,0.88)');
+      grad.addColorStop(0.55, 'rgba(66,6,8,0.6)');
+      grad.addColorStop(1, 'rgba(66,6,8,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+    }
+  });
+  const FLOOR_BLOOD_MAT = new THREE.MeshBasicMaterial({
+    map: FLOOR_BLOOD_TEXTURE, transparent: true, depthWrite: false
+  });
+  function buildFloorBlood(x, z, rng){
+    const size = CELL * (0.55 + rng()*0.6);
+    const decal = new THREE.Mesh(new THREE.PlaneGeometry(size, size), FLOOR_BLOOD_MAT);
+    decal.rotation.x = -Math.PI/2;
+    decal.rotation.z = rng() * Math.PI * 2;
+    decal.position.set(x, 0.03, z);
+    levelGroup.add(decal);
+    return decal;
+  }
+
+  // Dead bodies slumped in wall corners, built from a handful of shared,
+  // reused primitives (cheap even repeated many times — only the transforms
+  // differ) with a blood pool underneath.
+  const CORPSE_SKIN_MAT = new THREE.MeshStandardMaterial({ color: 0x746a5c, roughness: 0.95 });
+  const CORPSE_STAIN_MAT = new THREE.MeshStandardMaterial({ color: 0x3a0709, roughness: 0.95 });
+  const corpseTorsoGeom = new THREE.BoxGeometry(0.34, 0.24, 0.86);
+  const corpseHeadGeom = new THREE.SphereGeometry(0.135, 8, 8);
+  const corpseLimbGeom = new THREE.CylinderGeometry(0.055, 0.075, 0.58, 6);
+  const corpseStainGeom = new THREE.BoxGeometry(0.4, 0.03, 0.55);
+  function buildCorpse(x, z, rot, rng){
+    const grp = new THREE.Group();
+    const torso = new THREE.Mesh(corpseTorsoGeom, CORPSE_SKIN_MAT);
+    torso.position.y = 0.13;
+    grp.add(torso);
+    const head = new THREE.Mesh(corpseHeadGeom, CORPSE_SKIN_MAT);
+    head.position.set(0, 0.13, 0.53);
+    grp.add(head);
+    const stain = new THREE.Mesh(corpseStainGeom, CORPSE_STAIN_MAT);
+    stain.position.set(0, 0.015, -0.08);
+    grp.add(stain);
+    [-1, 1].forEach(function(side){
+      const leg = new THREE.Mesh(corpseLimbGeom, CORPSE_SKIN_MAT);
+      leg.rotation.x = Math.PI/2;
+      leg.position.set(side*0.08, 0.09, -0.63);
+      grp.add(leg);
+      const arm = new THREE.Mesh(corpseLimbGeom, CORPSE_SKIN_MAT);
+      arm.scale.set(0.72, 0.72, 0.72);
+      arm.rotation.z = side * 1.0;
+      arm.position.set(side*0.27, 0.12, 0.15);
+      grp.add(arm);
+    });
+    grp.position.set(x, 0, z);
+    grp.rotation.y = rot;
+    levelGroup.add(grp);
+    // a blood pool spreading out from the body
+    buildFloorBlood(x, z, rng);
+    return grp;
+  }
   const CONNECTOR_GAP = CELL * 1.15; // short vestibule where each connecting door lives
 
   // Which world-X index a room occupies, given how far along the chain it is.
@@ -981,8 +1048,8 @@
 
     // A pale, hazy liminal-space fog instead of the sickly amber one —
     // still there to hide the far end of long rooms, just brighter.
-    scene.fog = new THREE.Fog(0xdde4dc, isTouchDevice ? 7 : 5.5, isTouchDevice ? 26 : 23);
-    scene.background = new THREE.Color(0xc7d2c8);
+    scene.fog = new THREE.Fog(0x3c3f3a, isTouchDevice ? 6.5 : 5, isTouchDevice ? 22 : 19);
+    scene.background = new THREE.Color(0x2b2d29);
 
     const mobileBoost = isTouchDevice ? 1.55 : 1;
     mobileBoostG = mobileBoost;
@@ -1113,13 +1180,13 @@
         }
       }
 
-      const ceilLight = new THREE.PointLight(0xf5faf3, 1.05 * mobileBoost, CELL*4, 2);
+      const ceilLight = new THREE.PointLight(0xe4ecdf, 0.68 * mobileBoost, CELL*3.6, 2);
       ceilLight.position.set(offsetX, WALL_H-0.3, 0);
       levelGroup.add(ceilLight);
-      activeLights.push({ light: ceilLight, base: 1.05, phase: Math.random()*100 });
+      activeLights.push({ light: ceilLight, base: 0.68, phase: Math.random()*100 });
       addFixture(offsetX, 0);
       buildPipeCluster(mulberry32((seed + level*97 + 7777) >>> 0), offsetX, 0);
-      const hemi = new THREE.HemisphereLight(0xe6f0e2, 0x3a4238, 0.6 * mobileBoost);
+      const hemi = new THREE.HemisphereLight(0x8a9184, 0x1c1e19, 0.32 * mobileBoost);
       levelGroup.add(hemi);
 
       const lightRng = mulberry32((seed + level*97 + 555) >>> 0);
@@ -1136,10 +1203,10 @@
         // atmosphere and variety (mirrors real busted office lighting).
         const dead = lightRng() < 0.07;
         if (!dead){
-          const l = new THREE.PointLight(0xeef5ea, 0.7 * mobileBoost, CELL*3.4, 2);
+          const l = new THREE.PointLight(0xdde6d7, 0.42 * mobileBoost, CELL*3, 2);
           l.position.set(worldX(lx), WALL_H-0.4, worldZ(ly));
           levelGroup.add(l);
-          activeLights.push({ light: l, base: 0.7, phase: Math.random()*100 });
+          activeLights.push({ light: l, base: 0.42, phase: Math.random()*100 });
         }
         addFixture(worldX(lx), worldZ(ly), dead);
         usedFixtureCells.push(lx + ',' + ly);
@@ -1162,6 +1229,47 @@
           if (propRng() < propChance){
             const jitter = CELL * 0.28;
             buildColumn(worldX(x) + (propRng()-0.5)*jitter, worldZ(y) + (propRng()-0.5)*jitter);
+          }
+        }
+      }
+
+      // More blood on the floor — loose pools scattered through the room,
+      // independent of the wall-blood decals above.
+      const floorBloodRng = mulberry32((seed + level*97 + 3131) >>> 0);
+      const floorBloodChance = isTouchDevice ? 0.05 : 0.09;
+      for (let y=0;y<size;y++){
+        for (let x=0;x<size;x++){
+          const isEntry = (i > 0 && x === enx && y === eny) || (i === 0 && x===0 && y===0) || (i===0 && x===size-1 && y===size-1);
+          const isExit = x === ex && y === ey;
+          if (isEntry || isExit) continue;
+          if (floorBloodRng() < floorBloodChance){
+            const jitter = CELL * 0.3;
+            buildFloorBlood(worldX(x) + (floorBloodRng()-0.5)*jitter, worldZ(y) + (floorBloodRng()-0.5)*jitter, floorBloodRng);
+          }
+        }
+      }
+
+      // Dead bodies slumped where two walls meet — a corner reads as a
+      // corner exactly where two perpendicular sides of the cell are both
+      // walled in, which the maze generator already tells us per-cell.
+      const corpseRng = mulberry32((seed + level*97 + 5252) >>> 0);
+      const corpseChance = isTouchDevice ? 0.12 : 0.2;
+      for (let y=0;y<size;y++){
+        for (let x=0;x<size;x++){
+          const c = cells[y][x];
+          const isEntry = (i > 0 && x === enx && y === eny) || (i === 0 && x===0 && y===0) || (i===0 && x===size-1 && y===size-1);
+          const isExit = x === ex && y === ey;
+          if (isEntry || isExit) continue;
+          let cornerDX = 0, cornerDZ = 0, cornerRot = 0;
+          if (c.N && c.W){ cornerDX = -1; cornerDZ = -1; cornerRot = Math.PI*0.25; }
+          else if (c.N && c.E){ cornerDX = 1; cornerDZ = -1; cornerRot = -Math.PI*0.25; }
+          else if (c.S && c.W){ cornerDX = -1; cornerDZ = 1; cornerRot = Math.PI*0.75; }
+          else if (c.S && c.E){ cornerDX = 1; cornerDZ = 1; cornerRot = -Math.PI*0.75; }
+          else continue;
+          if (corpseRng() < corpseChance){
+            const cx = worldX(x) + cornerDX * CELL * 0.3;
+            const cz = worldZ(y) + cornerDZ * CELL * 0.3;
+            buildCorpse(cx, cz, cornerRot + (corpseRng()-0.5)*0.6, corpseRng);
           }
         }
       }
@@ -1251,10 +1359,10 @@
           wallBoxes.push({ minX: gapCenterX-gapWidth/2, maxX: gapCenterX+gapWidth/2, minZ: side*CELL/2-0.1, maxZ: side*CELL/2+0.1 });
         });
 
-        const connLight = new THREE.PointLight(0xeef5ea, 0.6 * mobileBoost, CELL*3, 2);
+        const connLight = new THREE.PointLight(0xdde6d7, 0.4 * mobileBoost, CELL*2.6, 2);
         connLight.position.set(gapCenterX, WALL_H-0.4, 0);
         levelGroup.add(connLight);
-        activeLights.push({ light: connLight, base: 0.6, phase: Math.random()*100 });
+        activeLights.push({ light: connLight, base: 0.4, phase: Math.random()*100 });
         addFixture(gapCenterX, 0);
 
         zoneBoundaries.push(gapCenterX);
@@ -2522,8 +2630,14 @@
       for (let i=0;i<activeLights.length;i++){
         const entry = activeLights[i];
         const t = flickerSeed + entry.phase;
-        const flicker = 1 + Math.sin(t*7)*0.05 + (Math.random() < 0.012 ? -0.4 : 0);
-        entry.light.intensity = entry.base * mobileBoostG * clamp(flicker, 0.4, 1.25);
+        // Continuous, unsteady flicker: two overlapping sine waves at
+        // different speeds (never settles into a clean rhythm) plus
+        // frequent brief stutters/dips — always visibly restless instead
+        // of the previous barely-there shimmer.
+        const wobble = Math.sin(t*9) * 0.13 + Math.sin(t*23 + entry.phase) * 0.09;
+        const stutter = (Math.random() < 0.05) ? -(0.25 + Math.random()*0.45) : 0;
+        const flicker = 1 + wobble + stutter;
+        entry.light.intensity = entry.base * mobileBoostG * clamp(flicker, 0.12, 1.3);
       }
     }
 
