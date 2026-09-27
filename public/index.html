@@ -748,30 +748,73 @@
   }
 
   /* ============================================================
-     5. Peer avatar (the OTHER player, moving in the shared maze)
+     5. Peer avatar — a simple human figure for the OTHER player,
+        walking around the shared maze
   ============================================================ */
   let peerAvatar = null;
+  let peerWalkPhase = 0;
   const peerTarget = { x:0, z:0, ry:0 };
+
+  // Randomized-but-consistent look: derived from the game seed + role, so
+  // it's the same every time this pair plays a given maze, without either
+  // client having to transmit what the other one looks like.
+  function pickAppearance(role){
+    const rng = mulberry32((gameSeed + (role === 'A' ? 11 : 22)) >>> 0);
+    const skins = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
+    const shirts = [0xc1443a, 0x3a6ac1, 0x6fae52, 0xe0a835, 0x8fb3ad, 0x7a4fae, 0xd9773f];
+    const pants = [0x2b2b2b, 0x33404a, 0x4a3b2b, 0x223322];
+    const hairs = [0x1a1410, 0x3b2a1a, 0x6b4a2a, 0x1c1c1c, null]; // null = bald
+    const pick = (arr) => arr[Math.floor(rng()*arr.length)];
+    return { skin: pick(skins), shirt: pick(shirts), pants: pick(pants), hair: pick(hairs) };
+  }
+
+  function buildHumanFigure(appearance){
+    const grp = new THREE.Group();
+    const skinMat = new THREE.MeshStandardMaterial({ color: appearance.skin, roughness:0.85 });
+    const shirtMat = new THREE.MeshStandardMaterial({ color: appearance.shirt, roughness:0.8 });
+    const pantsMat = new THREE.MeshStandardMaterial({ color: appearance.pants, roughness:0.9 });
+
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.54, 0.24), shirtMat);
+    torso.position.y = 0.5 + 0.27;
+    grp.add(torso);
+
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 12), skinMat);
+    head.position.y = 0.5 + 0.54 + 0.17;
+    grp.add(head);
+
+    if (appearance.hair !== null){
+      const hair = new THREE.Mesh(
+        new THREE.SphereGeometry(0.178, 14, 12, 0, Math.PI*2, 0, Math.PI*0.55),
+        new THREE.MeshStandardMaterial({ color: appearance.hair, roughness:0.9 })
+      );
+      hair.position.y = head.position.y + 0.035;
+      grp.add(hair);
+    }
+
+    // arms/legs pivot at their TOP (shoulder / hip) so rotating the mesh
+    // swings the limb naturally, like a simple walk-cycle rig
+    const armGeom = new THREE.BoxGeometry(0.12, 0.46, 0.12);
+    armGeom.translate(0, -0.23, 0);
+    const legGeom = new THREE.BoxGeometry(0.15, 0.5, 0.15);
+    legGeom.translate(0, -0.25, 0);
+
+    const shoulderY = 0.5 + 0.54;
+    const armL = new THREE.Mesh(armGeom, skinMat); armL.position.set(-0.27, shoulderY, 0);
+    const armR = new THREE.Mesh(armGeom, skinMat); armR.position.set(0.27, shoulderY, 0);
+    const legL = new THREE.Mesh(legGeom, pantsMat); legL.position.set(-0.12, 0.5, 0);
+    const legR = new THREE.Mesh(legGeom, pantsMat); legR.position.set(0.12, 0.5, 0);
+    grp.add(armL, armR, legL, legR);
+
+    grp.userData.limbs = { armL, armR, legL, legR };
+    return grp;
+  }
 
   function ensurePeerAvatar(){
     if (peerAvatar) return peerAvatar;
     const otherRole = myRole === 'A' ? 'B' : 'A';
-    const color = THEMES[otherRole].accent;
-    const grp = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.28, 0.34, 1.5, 12),
-      new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity:0.3, roughness:0.6 })
-    );
-    body.position.y = 0.85;
-    grp.add(body);
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.22, 12, 10),
-      new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity:0.35 })
-    );
-    head.position.y = 1.72;
-    grp.add(head);
-    const glow = new THREE.PointLight(color, 0.9, 3.4, 2);
-    glow.position.y = 1.5;
+    const grp = buildHumanFigure(pickAppearance(otherRole));
+    const glow = new THREE.PointLight(THEMES[otherRole].accent, 0.7, 3.2, 2);
+    glow.position.y = 1.3;
     grp.add(glow);
     grp.visible = false;
     levelGroup.add(grp);
@@ -1320,9 +1363,24 @@
 
     if (peerAvatar && peerAvatar.visible){
       const lerp = Math.min(1, delta*10);
+      const prevX = peerAvatar.position.x, prevZ = peerAvatar.position.z;
       peerAvatar.position.x += (peerTarget.x - peerAvatar.position.x) * lerp;
       peerAvatar.position.z += (peerTarget.z - peerAvatar.position.z) * lerp;
       peerAvatar.rotation.y = peerTarget.ry;
+
+      const movedDist = Math.hypot(peerAvatar.position.x - prevX, peerAvatar.position.z - prevZ);
+      const limbs = peerAvatar.userData.limbs;
+      if (limbs){
+        if (movedDist > 0.002){
+          peerWalkPhase += delta * 9;
+          const swing = Math.sin(peerWalkPhase) * 0.55;
+          limbs.legL.rotation.x = swing;   limbs.legR.rotation.x = -swing;
+          limbs.armL.rotation.x = -swing;  limbs.armR.rotation.x = swing;
+        } else {
+          limbs.legL.rotation.x *= 0.8; limbs.legR.rotation.x *= 0.8;
+          limbs.armL.rotation.x *= 0.8; limbs.armR.rotation.x *= 0.8;
+        }
+      }
     }
 
     if (gameState === 'playing' && !soloMode){
