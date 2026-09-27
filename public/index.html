@@ -1180,22 +1180,68 @@
       const glow = new THREE.PointLight(0xffcf7a, 0.7, 2.6, 2);
       grp.add(glow);
     } else {
+      // Level 1: a tall dark robed body with the reference screamer
+      // photo's actual face sculpted on top — pale skin, short dark
+      // hair, light eyes, and the wide grinning open mouth with teeth
+      // that's the photo's most recognizable feature — instead of a
+      // featureless dark head with dot eyes.
       grp.userData.style = 'dark';
-      const dark = new THREE.MeshStandardMaterial({ color: 0x07060a, roughness: 1 });
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.34, 1.85, 10), dark);
+      const robeMat = new THREE.MeshStandardMaterial({ color: 0x07060a, roughness: 1 });
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.34, 1.85, 10), robeMat);
       body.position.y = 0.95;
       grp.add(body);
-      const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10), dark);
+
+      const skinMat = new THREE.MeshStandardMaterial({ color: 0xe3bfa4, roughness: 0.8 });
+      const hairMat = new THREE.MeshStandardMaterial({ color: 0x2c3324, roughness: 0.9 });
+      const teethMat = new THREE.MeshStandardMaterial({ color: 0xf2ead8, roughness: 0.6 });
+      const mouthMat = new THREE.MeshStandardMaterial({ color: 0x3a0f0f, roughness: 0.8 });
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x9fd0e0 });
+
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), skinMat);
       head.position.y = 1.95;
-      head.scale.set(0.85, 1.15, 0.9);
+      head.scale.set(0.82, 1.05, 0.85);
       grp.add(head);
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2b2b });
+
+      // short buzzed hair cap, leaving the face open
+      const hair = new THREE.Mesh(
+        new THREE.SphereGeometry(0.225, 12, 10, 0, Math.PI*2, 0, 1.5),
+        hairMat
+      );
+      hair.position.y = 1.98;
+      hair.scale.set(0.85, 1.05, 0.88);
+      grp.add(hair);
+
       [-1, 1].forEach(function(side){
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 6, 6), eyeMat);
-        eye.position.set(side * 0.075, 1.98, -0.185);
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.026, 6, 6), eyeMat);
+        eye.position.set(side * 0.07, 1.98, -0.175);
         grp.add(eye);
+        const brow = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.012, 0.02), hairMat);
+        brow.position.set(side * 0.07, 2.015, -0.175);
+        grp.add(brow);
+        const ear = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), skinMat);
+        ear.scale.set(0.6, 1, 0.5);
+        ear.position.set(side * 0.225, 1.95, 0.01);
+        grp.add(ear);
       });
-      const glow = new THREE.PointLight(0xff2b2b, 0.6, 2.4, 2);
+
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.07, 6), skinMat);
+      nose.rotation.x = -Math.PI/2;
+      nose.position.set(0, 1.94, -0.19);
+      grp.add(nose);
+
+      // the wide-open grinning mouth with teeth — the scariest, most
+      // recognizable part of the reference photo
+      const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.055, 0.03), mouthMat);
+      mouth.position.set(0, 1.895, -0.185);
+      grp.add(mouth);
+      const teethTop = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.018, 0.02), teethMat);
+      teethTop.position.set(0, 1.914, -0.183);
+      grp.add(teethTop);
+      const teethBottom = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.016, 0.02), teethMat);
+      teethBottom.position.set(0, 1.876, -0.183);
+      grp.add(teethBottom);
+
+      const glow = new THREE.PointLight(0xfff0e0, 0.35, 2.2, 2);
       glow.position.y = 1.95;
       grp.add(glow);
     }
