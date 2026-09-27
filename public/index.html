@@ -838,28 +838,61 @@
     torso.position.y = 0.5 + 0.27;
     grp.add(torso);
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 14, 12), skinMat);
-    head.position.y = 0.5 + 0.54 + 0.17;
+    const headRadius = 0.17;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(headRadius, 14, 12), skinMat);
+    head.position.y = 0.5 + 0.54 + headRadius;
     grp.add(head);
 
-    // the character's face — a flat photo mounted on the front of the
-    // head, facing the same "forward" direction the avatar walks in
-    // (-Z at rotation.y = 0, matching the camera's own yaw convention).
-    // A plain PlaneGeometry's normal points +Z, which is BACKWARDS from
-    // the avatar's forward direction — that's what made the photo show
-    // up wrong. Rotating it 180° around Y fixes the facing direction,
-    // but that rotation also mirrors the image left/right, so we cancel
-    // that out by mirroring the texture's U coordinate back. DoubleSide
-    // is a safety net so the photo is never invisible from any angle.
-    const faceMat = new THREE.MeshBasicMaterial({
+    // the character's face — sculpted, not a flat cutout. We start from a
+    // plane, then push its vertices outward into a shallow dome so the
+    // photo actually curves around the head like a face instead of
+    // floating in front of it like a photo taped to a box. Real vertex
+    // normals are recomputed on the dome, so it catches light and reads
+    // as a 3D surface. A small nose bump and a hair cap on top finish
+    // the look, since the goal is "looks like the person in 3D", not a
+    // literal, unmodified photo.
+    const faceGeom = new THREE.PlaneGeometry(0.27, 0.31, 16, 18);
+    {
+      const pos = faceGeom.attributes.position;
+      const bulge = 0.055; // how far the center pokes out past the edges
+      const falloff = 0.19;
+      for (let i = 0; i < pos.count; i++){
+        const x = pos.getX(i), y = pos.getY(i);
+        const d = Math.min(1, Math.sqrt(x * x + y * y) / falloff);
+        pos.setZ(i, Math.cos(d * Math.PI / 2) * bulge);
+      }
+      faceGeom.computeVertexNormals();
+    }
+    // Facing forward (-Z, the avatar's walk direction) means rotating the
+    // dome 180° around Y — a plain plane's normal points +Z by default,
+    // which is backwards. That rotation also mirrors the image left/right,
+    // which FACE_TEXTURE's flipped U offset (set above) already cancels
+    // out. DoubleSide is a safety net so the face is never invisible.
+    const faceMat = new THREE.MeshStandardMaterial({
       map: FACE_TEXTURE,
       transparent: true,
-      side: THREE.DoubleSide
+      side: THREE.DoubleSide,
+      roughness: 0.9
     });
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(0.24, 0.28), faceMat);
+    const face = new THREE.Mesh(faceGeom, faceMat);
     face.rotation.y = Math.PI;
-    face.position.set(0, head.position.y + 0.01, -0.155);
+    face.position.set(0, head.position.y + 0.01, -0.145);
     grp.add(face);
+
+    // A small nose bump for extra depth in the middle of the face.
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), skinMat);
+    nose.position.set(0, head.position.y - 0.015, -0.19);
+    grp.add(nose);
+
+    // Simple hair cap covering the top/back/sides, leaving a gap open at
+    // the front (roughly a 120° wedge centered on -Z) so it doesn't cover
+    // the face. Dark brown, like the reference photo.
+    const hair = new THREE.Mesh(
+      new THREE.SphereGeometry(headRadius * 1.05, 16, 12, -0.5, 4.2, 0, 2.05),
+      new THREE.MeshStandardMaterial({ color: 0x2b1d12, roughness: 0.9 })
+    );
+    hair.position.copy(head.position);
+    grp.add(hair);
 
     // arms/legs pivot at their TOP (shoulder / hip) so rotating the mesh
     // swings the limb naturally, like a simple walk-cycle rig
