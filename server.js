@@ -86,6 +86,11 @@ wss.on('connection', function (ws, req) {
       typeof msg.x === 'number' && typeof msg.z === 'number' && typeof msg.ry === 'number'
     ) {
       send(otherSide, { type: 'pos', role: ws.role, x: msg.x, z: msg.z, ry: msg.ry });
+    } else if (
+      msg.type === 'appearance' &&
+      typeof msg.shirt === 'number' && typeof msg.pants === 'number'
+    ) {
+      send(otherSide, { type: 'appearance', role: ws.role, shirt: msg.shirt, pants: msg.pants });
     }
   });
 

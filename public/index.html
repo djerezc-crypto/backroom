@@ -289,6 +289,18 @@
     width:100%; accent-color:var(--accent, var(--amber));
   }
 
+  /* ---------- character customization swatches ---------- */
+  .swatch-row{ display:flex; gap:8px; flex-wrap:wrap; }
+  .swatch{
+    width:30px; height:30px; border-radius:50%; padding:0;
+    border:2px solid rgba(239,233,216,0.25);
+    cursor:pointer; -webkit-tap-highlight-color:transparent;
+  }
+  .swatch.selected{
+    border-color:var(--text);
+    box-shadow:0 0 0 2px var(--accent, var(--amber));
+  }
+
   /* ---------- level banner ---------- */
   #banner{
     position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -363,6 +375,15 @@
         <kbd>Shift</kbd><span>Correr</span>
         <kbd>Enter</kbd><span>Abrir chat con tu compañero</span>
         <kbd>Esc</kbd><span>Pausa y opciones</span>
+      </div>
+
+      <div class="field">
+        <label>Color de tu polera</label>
+        <div class="swatch-row" id="shirtSwatches"></div>
+      </div>
+      <div class="field">
+        <label>Color de tu pantalón</label>
+        <div class="swatch-row" id="pantsSwatches"></div>
       </div>
 
       <p style="margin-bottom:8px;"><strong>Invita a tu compañero:</strong> mándale este mismo link (desde su celular o su PC). No necesita cuenta ni instalar nada — con abrirlo en su navegador se conecta directo a tu partida.</p>
@@ -501,6 +522,37 @@
   }
   wireCopy($('copyLinkBtn'), linkInput);
   wireCopy($('copyLinkBtn2'), linkInput2);
+
+  /* ---- character customization (shirt / pants color, picked before playing) ---- */
+  const SHIRT_COLORS = [0xc1443a, 0x3a6ac1, 0x6fae52, 0xe0a835, 0x8fb3ad, 0x7a4fae, 0xd9773f, 0x2b2b2b];
+  const PANTS_COLORS = [0x2b2b2b, 0x33404a, 0x4a3b2b, 0x223322, 0x5c5c5c, 0x1c1c1c];
+  const myAppearance = {
+    shirt: loadNum('bt_shirt', SHIRT_COLORS[0]),
+    pants: loadNum('bt_pants', PANTS_COLORS[0])
+  };
+
+  function buildSwatches(containerId, colors, current, onPick){
+    const el = $(containerId);
+    el.innerHTML = '';
+    colors.forEach(function(hex){
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'swatch' + (hex === current() ? ' selected' : '');
+      btn.style.background = '#' + hex.toString(16).padStart(6, '0');
+      btn.addEventListener('click', function(){
+        onPick(hex);
+        el.querySelectorAll('.swatch').forEach(function(s){ s.classList.remove('selected'); });
+        btn.classList.add('selected');
+      });
+      el.appendChild(btn);
+    });
+  }
+  buildSwatches('shirtSwatches', SHIRT_COLORS, () => myAppearance.shirt, function(hex){
+    myAppearance.shirt = hex; saveNum('bt_shirt', hex); sendAppearance();
+  });
+  buildSwatches('pantsSwatches', PANTS_COLORS, () => myAppearance.pants, function(hex){
+    myAppearance.pants = hex; saveNum('bt_pants', hex); sendAppearance();
+  });
 
   /* ============================================================
      2. Theme / maze constants
@@ -753,19 +805,21 @@
   ============================================================ */
   let peerAvatar = null;
   let peerWalkPhase = 0;
+  let peerAppearance = null; // {shirt, pants} received from the peer, if any
   const peerTarget = { x:0, z:0, ry:0 };
 
-  // Randomized-but-consistent look: derived from the game seed + role, so
-  // it's the same every time this pair plays a given maze, without either
-  // client having to transmit what the other one looks like.
+  const FACE_TEXTURE = new THREE.TextureLoader().load('face.png');
+
+  // Fallback shirt/pants + a fixed skin tone, derived from the game seed +
+  // role, used only until the peer's own chosen colors (picked on the
+  // start screen) arrive over the network.
   function pickAppearance(role){
     const rng = mulberry32((gameSeed + (role === 'A' ? 11 : 22)) >>> 0);
     const skins = [0xf1c27d, 0xe0ac69, 0xc68642, 0x8d5524, 0xffdbac];
     const shirts = [0xc1443a, 0x3a6ac1, 0x6fae52, 0xe0a835, 0x8fb3ad, 0x7a4fae, 0xd9773f];
     const pants = [0x2b2b2b, 0x33404a, 0x4a3b2b, 0x223322];
-    const hairs = [0x1a1410, 0x3b2a1a, 0x6b4a2a, 0x1c1c1c, null]; // null = bald
     const pick = (arr) => arr[Math.floor(rng()*arr.length)];
-    return { skin: pick(skins), shirt: pick(shirts), pants: pick(pants), hair: pick(hairs) };
+    return { skin: pick(skins), shirt: pick(shirts), pants: pick(pants) };
   }
 
   function buildHumanFigure(appearance){
@@ -782,14 +836,15 @@
     head.position.y = 0.5 + 0.54 + 0.17;
     grp.add(head);
 
-    if (appearance.hair !== null){
-      const hair = new THREE.Mesh(
-        new THREE.SphereGeometry(0.178, 14, 12, 0, Math.PI*2, 0, Math.PI*0.55),
-        new THREE.MeshStandardMaterial({ color: appearance.hair, roughness:0.9 })
-      );
-      hair.position.y = head.position.y + 0.035;
-      grp.add(hair);
-    }
+    // the character's face — a flat photo mounted on the front of the
+    // head, facing the same "forward" direction as the walk direction
+    // (-Z at rotation.y = 0, matching the camera's own yaw convention)
+    const face = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.3, 0.37),
+      new THREE.MeshBasicMaterial({ map: FACE_TEXTURE, transparent:true })
+    );
+    face.position.set(0, head.position.y - 0.01, -0.165);
+    grp.add(face);
 
     // arms/legs pivot at their TOP (shoulder / hip) so rotating the mesh
     // swings the limb naturally, like a simple walk-cycle rig
@@ -806,13 +861,20 @@
     grp.add(armL, armR, legL, legR);
 
     grp.userData.limbs = { armL, armR, legL, legR };
+    grp.userData.materials = { shirtMat, pantsMat };
     return grp;
   }
 
   function ensurePeerAvatar(){
     if (peerAvatar) return peerAvatar;
     const otherRole = myRole === 'A' ? 'B' : 'A';
-    const grp = buildHumanFigure(pickAppearance(otherRole));
+    const base = pickAppearance(otherRole);
+    const appearance = {
+      skin: base.skin,
+      shirt: (peerAppearance && peerAppearance.shirt) || base.shirt,
+      pants: (peerAppearance && peerAppearance.pants) || base.pants
+    };
+    const grp = buildHumanFigure(appearance);
     const glow = new THREE.PointLight(THEMES[otherRole].accent, 0.7, 3.2, 2);
     glow.position.y = 1.3;
     grp.add(glow);
@@ -820,6 +882,14 @@
     levelGroup.add(grp);
     peerAvatar = grp;
     return grp;
+  }
+
+  function applyPeerAppearance(appearance){
+    peerAppearance = appearance;
+    if (peerAvatar && peerAvatar.userData.materials){
+      peerAvatar.userData.materials.shirtMat.color.setHex(appearance.shirt);
+      peerAvatar.userData.materials.pantsMat.color.setHex(appearance.pants);
+    }
   }
 
   function updatePeerAvatarTarget(x, z, ry){
@@ -1205,6 +1275,10 @@
     }
   }
 
+  function sendAppearance(){
+    sendGameEvent('appearance', { shirt: myAppearance.shirt, pants: myAppearance.pants });
+  }
+
   function setRole(role){
     myRole = role;
     roleLocked = true;
@@ -1216,6 +1290,7 @@
     ['screen-start','screen-wait','screen-pause','screen-win'].forEach(function(id){
       $(id).style.setProperty('--accent', theme.accent);
     });
+    sendAppearance();
   }
 
   function startGameplay(){
@@ -1229,6 +1304,7 @@
     requestLock();
     tryLockLandscape();
     scheduleScreamer();
+    sendAppearance();
   }
 
   function updatePeerUI(){
@@ -1312,6 +1388,7 @@
         peerConnected = true;
         updatePeerUI();
         checkReadyToPlay();
+        sendAppearance(); // the peer just connected — make sure they get our colors
         if (gameState === 'playing') pushLog('sys', null, 'Tu compañero se conectó.');
       } else if (msg.type === 'peer_left'){
         peerConnected = false;
@@ -1324,6 +1401,9 @@
       } else if (msg.type === 'pos'){
         if (msg.role === myRole) return;
         if (gameState === 'playing') updatePeerAvatarTarget(msg.x, msg.z, msg.ry);
+      } else if (msg.type === 'appearance'){
+        if (msg.role === myRole) return;
+        applyPeerAppearance({ shirt: msg.shirt, pants: msg.pants });
       } else if (msg.type === 'chat'){
         if (msg.role === myRole) return;
         pushLog('chat', msg.role, String(msg.text || '').slice(0, 200));
