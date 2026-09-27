@@ -2,7 +2,8 @@
 //
 // Serves the static game (./public) and relays the handful of messages
 // the two players need to exchange: who is Player A / Player B, the
-// shared puzzle seed, chat lines, and "I solved my puzzle" events.
+// shared maze seed, live positions (so each player sees the other move),
+// chat lines, and "I found the exit" events.
 // No accounts, no database — just two browser tabs talking through a
 // WebSocket that this server keeps open between them.
 
@@ -78,8 +79,13 @@ wss.on('connection', function (ws, req) {
 
     if (msg.type === 'chat' && typeof msg.text === 'string') {
       send(otherSide, { type: 'chat', role: ws.role, text: msg.text.slice(0, 200) });
-    } else if (msg.type === 'solved' && Number.isInteger(msg.level)) {
-      send(otherSide, { type: 'solved', role: ws.role, level: msg.level });
+    } else if (msg.type === 'exit' && Number.isInteger(msg.level)) {
+      send(otherSide, { type: 'exit', role: ws.role, level: msg.level });
+    } else if (
+      msg.type === 'pos' &&
+      typeof msg.x === 'number' && typeof msg.z === 'number' && typeof msg.ry === 'number'
+    ) {
+      send(otherSide, { type: 'pos', role: ws.role, x: msg.x, z: msg.z, ry: msg.ry });
     }
   });
 

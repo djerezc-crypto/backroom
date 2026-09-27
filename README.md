@@ -1,14 +1,16 @@
 # Backrooms Together
 
-Escape cooperativo en primera persona para 2 jugadores. Cada uno queda en un
-backroom distinto (Sala Amarilla / Sala Verde) y solo pueden avanzar
-contándose por chat lo que cada uno ve — el mecanismo que abre TU puerta
-está en la sala del otro.
+Laberinto cooperativo de terror en primera persona para 2 jugadores. Ambos
+quedan atrapados en el mismo laberinto de backrooms, viéndose el uno al
+otro moverse en tiempo real, y tienen que encontrar juntos la salida
+brillante en tres laberintos cada vez más grandes — con sustos (jumpscares)
+apareciendo de a ratos para asustarlos.
 
 No usa cuentas, ni bases de datos, ni servicios externos: es un servidor
 Node.js chiquito (Express + WebSocket) que corre en tu propio computador y
-solo reenvía tres cosas entre los dos navegadores: quién es Jugador A/B, el
-chat, y el aviso de "resolví mi mecanismo".
+solo reenvía lo necesario entre los dos navegadores: quién es Jugador A/B,
+la posición de cada uno para verse moverse, el chat, y el aviso de
+"encontré la salida".
 
 Funciona desde PC (teclado + mouse o trackpad) **y** desde el celular
 (joystick táctil en pantalla) — se puede abrir en Chrome, o en Safari de un

@@ -50,6 +50,16 @@
 
   canvas#scene{ position:absolute; inset:0; width:100%; height:100%; display:block; outline:none; touch-action:none; }
 
+  /* ---------- jumpscare overlay ---------- */
+  #screamerOverlay{
+    position:absolute; inset:0; z-index:600;
+    display:none;
+    background:#000;
+  }
+  #screamerOverlay.show{ display:block; animation:screamerPop .12s ease-out; }
+  #screamerOverlay img{ width:100%; height:100%; object-fit:cover; filter:contrast(1.15) saturate(1.1); display:block; }
+  @keyframes screamerPop{ from{ transform:scale(1.5); } to{ transform:scale(1); } }
+
   /* ---------- touch controls (phones/tablets) ---------- */
   #touchControls{ position:absolute; inset:0; z-index:12; pointer-events:none; touch-action:none; }
   #joyBase{
@@ -75,14 +85,8 @@
     box-shadow:0 4px 14px rgba(0,0,0,0.45);
     -webkit-tap-highlight-color:transparent; user-select:none;
   }
-  #touchInteract{
-    right:26px; bottom:calc(34px + env(safe-area-inset-bottom,0px));
-    width:92px; height:92px; font-size:14px; letter-spacing:.04em;
-    background:rgba(224,168,53,0.28); border-color:rgba(224,168,53,0.85);
-  }
-  #touchInteract.active{ background:rgba(224,168,53,0.6); }
   #touchChat{
-    right:38px; bottom:calc(140px + env(safe-area-inset-bottom,0px));
+    right:26px; bottom:calc(34px + env(safe-area-inset-bottom,0px));
     width:62px; height:62px; font-size:24px;
   }
   #touchMenu{
@@ -92,7 +96,6 @@
 
   /* extra clarity for touch devices in general (bigger text, more contrast) */
   body.touch-device #hud .hud-badge{ font-size:14px; padding:8px 14px; background:rgba(10,9,6,0.75); }
-  body.touch-device #prompt{ font-size:15px; padding:9px 16px; bottom:150px; background:rgba(10,9,6,0.85); }
   body.touch-device #comms-log .msg{ font-size:14px; padding:7px 11px; }
   body.touch-device #comms-log .msg b{ font-size:12.5px; }
   body.touch-device #comms-hint{ font-size:12.5px; padding:4px 10px; }
@@ -231,13 +234,6 @@
     box-shadow:0 0 0 1px rgba(0,0,0,0.4);
     pointer-events:none; z-index:9;
   }
-  #prompt{
-    position:absolute; bottom:120px; left:50%; transform:translateX(-50%);
-    font-family:"IBM Plex Mono", monospace; font-size:12.5px;
-    background:rgba(14,13,9,0.72); border:1px solid var(--line);
-    padding:6px 12px; border-radius:4px; color:var(--text);
-    pointer-events:none; z-index:9; letter-spacing:.03em;
-  }
 
   /* ---------- comms panel ---------- */
   #comms{
@@ -318,12 +314,14 @@
 <div id="app">
   <canvas id="scene"></canvas>
 
+  <div id="screamerOverlay"><img id="screamerImg" src="scream.png" alt=""></div>
+
   <div id="hud" hidden>
     <div class="hud-badge">
       <span class="role-chip" id="roleChip"></span>
       <span id="roleLabel">—</span>
     </div>
-    <div class="hud-badge level-chip">LEVEL <b id="levelNum">1</b> / 3</div>
+    <div class="hud-badge level-chip">LABERINTO <b id="levelNum">1</b> / 3</div>
     <div class="hud-badge">
       <span class="dot" id="peerDot"></span>
       <span id="peerLabel">solo</span>
@@ -331,11 +329,9 @@
   </div>
 
   <div id="crosshair" hidden></div>
-  <div id="prompt" hidden></div>
 
   <div id="touchControls" hidden>
     <div id="joyBase"><div id="joyKnob"></div></div>
-    <button id="touchInteract" class="touch-btn">USAR</button>
     <button id="touchChat" class="touch-btn">💬</button>
     <button id="touchMenu" class="touch-btn">☰</button>
   </div>
@@ -350,22 +346,21 @@
   </div>
 
   <div id="banner" hidden>
-    <div class="b-title" id="bannerTitle">Nivel completo</div>
-    <div class="b-sub" id="bannerSub">Preparando la siguiente sala…</div>
+    <div class="b-title" id="bannerTitle">Laberinto superado</div>
+    <div class="b-sub" id="bannerSub">Preparando el siguiente laberinto…</div>
   </div>
 
   <!-- START SCREEN -->
   <div class="overlay" id="screen-start">
     <div class="card">
       <h1 class="title">Backrooms: Together</h1>
-      <p class="subtitle">Escape cooperativo en primera persona</p>
-      <p>Tú y tu compañero quedan atrapados en <strong>dos backrooms distintos</strong>, uno frente al otro sin poder verse. Cada sala tiene un mecanismo que solo la otra persona puede leer. La única forma de avanzar es <strong>contarse lo que ven</strong> por el chat del juego.</p>
+      <p class="subtitle">Laberinto cooperativo en primera persona</p>
+      <p>Tú y tu compañero quedan atrapados <strong>juntos en el mismo laberinto</strong> de backrooms, viéndose el uno al otro moverse. Busquen la salida brillante entre los tres laberintos — cada uno más grande que el anterior — y cuidado: algo ahí dentro se aparece de vez en cuando para darles un buen susto.</p>
 
       <div class="controls-grid">
         <kbd>W A S D</kbd><span>Moverse</span>
         <kbd>Trackpad / Mouse</kbd><span>Mirar alrededor</span>
         <kbd>Shift</kbd><span>Correr</span>
-        <kbd>Click</kbd><span>Usar / presionar</span>
         <kbd>Enter</kbd><span>Abrir chat con tu compañero</span>
         <kbd>Esc</kbd><span>Pausa y opciones</span>
       </div>
@@ -407,7 +402,7 @@
   <div class="overlay" id="screen-pause" hidden>
     <div class="card">
       <h1 class="title">Pausa</h1>
-      <p class="subtitle" id="pauseSub">Nivel 1 de 3</p>
+      <p class="subtitle" id="pauseSub">Laberinto 1 de 3</p>
 
       <div class="field">
         <label>Volumen <span class="val" id="volVal">40%</span></label>
@@ -428,9 +423,9 @@
   <!-- WIN SCREEN -->
   <div class="overlay" id="screen-win" hidden>
     <div class="card" style="text-align:center;">
-      <h1 class="title">Escaparon juntos</h1>
+      <h1 class="title">Escaparon del laberinto</h1>
       <p class="subtitle">Fin del recorrido</p>
-      <p>Las tres salas quedaron atrás gracias a que se ayudaron mutuamente. Ninguno de los dos podría haber salido solo.</p>
+      <p>Sobrevivieron los tres laberintos juntos — sustos incluidos.</p>
       <button class="btn primary" id="restartBtn">Jugar de nuevo</button>
     </div>
   </div>
@@ -452,10 +447,6 @@
       return ((t ^ t >>> 14) >>> 0) / 4294967296;
     };
   }
-  function rngFor(seed, level, who){
-    const s = (seed + level * 10007 + (who === 'A' ? 7919 : 104729)) >>> 0;
-    return mulberry32(s);
-  }
   function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
 
   function loadNum(key, fallback){
@@ -464,42 +455,6 @@
   }
   function saveNum(key, v){ try{ localStorage.setItem(key, String(v)); }catch(e){} }
 
-  function makeCanvasTexture(draw, w, h){
-    const c = document.createElement('canvas'); c.width = w; c.height = h;
-    const ctx = c.getContext('2d');
-    draw(ctx, w, h);
-    const tex = new THREE.CanvasTexture(c);
-    tex.needsUpdate = true;
-    return tex;
-  }
-
-  function signTexture(title, value, accent){
-    return makeCanvasTexture(function(ctx, w, h){
-      ctx.fillStyle = '#161209'; ctx.fillRect(0, 0, w, h);
-      ctx.strokeStyle = accent; ctx.lineWidth = 10; ctx.strokeRect(6, 6, w - 12, h - 12);
-      ctx.fillStyle = '#d8d0ba';
-      ctx.font = '30px "IBM Plex Mono", monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(title, w / 2, h * 0.32);
-      ctx.fillStyle = accent;
-      ctx.font = 'bold 58px "IBM Plex Mono", monospace';
-      ctx.fillText(value, w / 2, h * 0.68);
-    }, 512, 256);
-  }
-
-  function labelTexture(label, bg, fg){
-    const len = label.length;
-    const size = len <= 2 ? 84 : len <= 4 ? 54 : len <= 6 ? 40 : 28;
-    return makeCanvasTexture(function(ctx, w, h){
-      ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
-      ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 10; ctx.strokeRect(5, 5, w - 10, h - 10);
-      ctx.fillStyle = fg;
-      ctx.font = 'bold ' + size + 'px "IBM Plex Mono", monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(label, w / 2, h / 2 + 6);
-    }, 160, 160);
-  }
-
   /* ============================================================
      1. DOM refs
   ============================================================ */
@@ -507,13 +462,14 @@
   const canvas = $('scene');
   const hud = $('hud'), roleChip = $('roleChip'), roleLabel = $('roleLabel'),
         levelNum = $('levelNum'), peerDot = $('peerDot'), peerLabel = $('peerLabel');
-  const crosshair = $('crosshair'), promptEl = $('prompt');
+  const crosshair = $('crosshair');
   const touchControls = $('touchControls'), joyBase = $('joyBase'), joyKnob = $('joyKnob'),
-        touchInteractBtn = $('touchInteract'), touchChatBtn = $('touchChat'), touchMenuBtn = $('touchMenu');
+        touchChatBtn = $('touchChat'), touchMenuBtn = $('touchMenu');
   const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
   document.body.classList.toggle('touch-device', isTouchDevice);
   const comms = $('comms'), commsLog = $('comms-log'), commsBar = $('comms-bar'), commsInput = $('commsInput');
   const bannerEl = $('banner'), bannerTitle = $('bannerTitle'), bannerSub = $('bannerSub');
+  const screamerOverlay = $('screamerOverlay');
 
   // Best-effort: ask the browser for landscape once gameplay starts. This
   // silently does nothing where it isn't supported (iOS Safari) — the game
@@ -523,7 +479,7 @@
     if (!isTouchDevice) return;
     try{
       if (screen.orientation && screen.orientation.lock){
-        screen.orientation.lock('landscape').catch(function(){ /* not supported (e.g. iOS Safari) — the on-screen hint covers it */ });
+        screen.orientation.lock('landscape').catch(function(){ /* not supported (e.g. iOS Safari) */ });
       }
     }catch(e){ /* ignore */ }
   }
@@ -547,56 +503,17 @@
   wireCopy($('copyLinkBtn2'), linkInput2);
 
   /* ============================================================
-     2. Theme / level data
+     2. Theme / maze constants
   ============================================================ */
   const THEMES = {
-    A: { name:'Sala Amarilla', wall:0xcdbb3f, floor:0x8f7f2f, ceil:0xd8c85a, fog:0x8f7f2f, accent:'#e0a835', accentCss:'--amber' },
-    B: { name:'Sala Verde',    wall:0x22331f, floor:0x141d13, ceil:0x2c3d24, fog:0x0d130c, accent:'#6fae52', accentCss:'--green' }
+    A: { name:'Jugador Amarillo', accent:'#e0a835' },
+    B: { name:'Jugador Verde',    accent:'#6fae52' }
   };
 
-  function getPuzzleSpec(seed, level, who){
-    const rng = rngFor(seed, level, who);
-    if (level === 1){
-      if (who === 'A'){
-        const opts = [['ROJO', '#c1443a'], ['AZUL', '#3a6ac1'], ['VERDE', '#3ac16a'], ['AMARILLO', '#c1b23a']];
-        const idx = Math.floor(rng() * opts.length);
-        return { type:'pick', labels:opts.map(o=>o[0]), colors:opts.map(o=>o[1]), answer:idx,
-          clueTitle:'JUGADOR A NECESITA:', clueValue:opts[idx][0], apparatusName:'Botones de color' };
-      } else {
-        const digits = [Math.floor(rng()*10), Math.floor(rng()*10), Math.floor(rng()*10)];
-        return { type:'sequence', poolSize:10, labels:Array.from({length:10},(_,i)=>String(i)), answer:digits,
-          clueTitle:'JUGADOR B NECESITA CÓDIGO:', clueValue:digits.join('-'), apparatusName:'Teclado numérico' };
-      }
-    }
-    if (level === 2){
-      if (who === 'A'){
-        const pool = [1,2,3,4,5,6]; const seq = [];
-        for (let i=0;i<3;i++){ const j = Math.floor(rng()*pool.length); seq.push(pool.splice(j,1)[0]); }
-        return { type:'sequence', poolSize:6, labels:['1','2','3','4','5','6'], answer:seq,
-          clueTitle:'JUGADOR A NECESITA ORDEN:', clueValue:seq.join('-'), apparatusName:'Válvulas numeradas' };
-      } else {
-        const pattern = [rng()<0.5, rng()<0.5, rng()<0.5];
-        return { type:'toggle', count:3, answer:pattern,
-          clueTitle:'JUGADOR B NECESITA PATRÓN:', clueValue: pattern.map(p=>p?'ON':'OFF').join('-'), apparatusName:'Interruptores' };
-      }
-    }
-    // level 3
-    if (who === 'A'){
-      const opts = [['▲','#c1443a'],['●','#3a6ac1'],['■','#3ac16a'],['◆','#c1b23a']];
-      const idx = Math.floor(rng()*opts.length);
-      return { type:'pick', labels:opts.map(o=>o[0]), colors:opts.map(o=>o[1]), answer:idx,
-        clueTitle:'JUGADOR A NECESITA FUSIBLE:', clueValue:opts[idx][0], apparatusName:'Caja de fusibles' };
-    } else {
-      const opts = ['BAJO','MEDIO','ALTO'];
-      const idx = Math.floor(rng()*3);
-      return { type:'pick', labels:opts, colors:['#6fae52','#c1b23a','#c1443a'], answer:idx,
-        clueTitle:'JUGADOR B NECESITA DIAL:', clueValue:opts[idx], apparatusName:'Dial eléctrico' };
-    }
-  }
-
-  const ROOM = { w: 8, d: 14, h: 5 };
-  const SPAWN_Z = ROOM.d/2 - 1.4;
+  const CELL = 3.4;              // corridor cell size
+  const WALL_H = 3.1;
   const EYE_H = 1.65;
+  const MAZE_SIZES = [7, 9, 11]; // grows each level
 
   /* ============================================================
      3. Three.js persistent rig
@@ -629,8 +546,6 @@
   resize();
 
   let levelGroup = null;
-  let interactables = [];
-  let doorMesh = null;
   let ceilLight = null;
   let flickerSeed = Math.random()*100;
 
@@ -638,250 +553,137 @@
     if (levelGroup){ scene.remove(levelGroup); }
     levelGroup = new THREE.Group();
     scene.add(levelGroup);
-    interactables = [];
-  }
-
-  function buildShell(theme){
-    const g = new THREE.Group();
-    const wallMat = new THREE.MeshStandardMaterial({ color: theme.wall, roughness:0.95 });
-    const floorMat = new THREE.MeshStandardMaterial({ color: theme.floor, roughness:1 });
-    const ceilMat = new THREE.MeshStandardMaterial({ color: theme.ceil, roughness:1, emissive: theme.ceil, emissiveIntensity:0.15 });
-
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.d), floorMat);
-    floor.rotation.x = -Math.PI/2; g.add(floor);
-
-    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.d), ceilMat);
-    ceil.rotation.x = Math.PI/2; ceil.position.y = ROOM.h; g.add(ceil);
-
-    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.h), wallMat);
-    backWall.position.set(0, ROOM.h/2, -ROOM.d/2); g.add(backWall);
-
-    const frontWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.h), wallMat);
-    frontWall.position.set(0, ROOM.h/2, ROOM.d/2); frontWall.rotation.y = Math.PI; g.add(frontWall);
-
-    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.d, ROOM.h), wallMat);
-    leftWall.position.set(-ROOM.w/2, ROOM.h/2, 0); leftWall.rotation.y = Math.PI/2; g.add(leftWall);
-
-    const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.d, ROOM.h), wallMat);
-    rightWall.position.set(ROOM.w/2, ROOM.h/2, 0); rightWall.rotation.y = -Math.PI/2; g.add(rightWall);
-
-    // fluorescent strip
-    const strip = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.2, ROOM.d*0.7),
-      new THREE.MeshBasicMaterial({ color: 0xfff6d8 })
-    );
-    strip.rotation.x = Math.PI/2; strip.position.y = ROOM.h - 0.03;
-    g.add(strip);
-
-    // small phone screens read as much darker than a laptop display, so
-    // boost the lighting a bit when playing on a touch device
-    const mobileBoost = isTouchDevice ? 1.55 : 1;
-    ceilLight = new THREE.PointLight(0xfff2cf, 1.1 * mobileBoost, ROOM.d*1.3, 2);
-    ceilLight.position.set(0, ROOM.h - 0.4, 0);
-    g.add(ceilLight);
-
-    const hemi = new THREE.HemisphereLight(theme.ceil, theme.floor, 0.55 * mobileBoost);
-    g.add(hemi);
-
-    return g;
-  }
-
-  function makeButton(label, color, w, h){
-    const grp = new THREE.Group();
-    const box = new THREE.Mesh(
-      new THREE.BoxGeometry(w||0.85, h||0.85, 0.12),
-      new THREE.MeshStandardMaterial({ color: color, roughness:0.5, emissive: color, emissiveIntensity:0.15 })
-    );
-    grp.add(box);
-    const face = new THREE.Mesh(
-      new THREE.PlaneGeometry((w||0.85)*0.8, (h||0.85)*0.8),
-      new THREE.MeshBasicMaterial({ map: labelTexture(label, '#000000', '#ffffff'), transparent:true })
-    );
-    face.position.z = 0.065;
-    grp.add(face);
-    grp.userData.box = box;
-    grp.userData.baseColor = color;
-    return grp;
-  }
-
-  function setButtonState(grp, state){
-    // state: 'idle' | 'good' | 'bad'
-    const c = state === 'good' ? 0x3ac16a : state === 'bad' ? 0xc1443a : grp.userData.baseColor;
-    grp.userData.box.material.color.setHex(typeof c === 'string' ? parseInt(c.replace('#','0x')) : c);
-    grp.userData.box.material.emissive.setHex(typeof c === 'string' ? parseInt(c.replace('#','0x')) : c);
-  }
-
-  function makeDoor(theme){
-    const grp = new THREE.Group();
-    const slab = new THREE.Mesh(
-      new THREE.BoxGeometry(2.2, 3.4, 0.2),
-      new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness:0.7, metalness:0.2 })
-    );
-    slab.position.y = 1.7;
-    grp.add(slab);
-    const lamp = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.5, 0.15),
-      new THREE.MeshBasicMaterial({ color: 0xc1443a })
-    );
-    lamp.position.set(0, 3.15, 0.11);
-    grp.add(lamp);
-    grp.position.set(0, 0, -ROOM.d/2 + 0.15);
-    grp.userData.slab = slab;
-    grp.userData.lamp = lamp;
-    grp.userData.open = false;
-    return grp;
-  }
-
-  function openDoor(door){
-    if (door.userData.open) return;
-    door.userData.open = true;
-    door.userData.lamp.material.color.setHex(0x6fae52);
-    const start = performance.now();
-    (function anim(){
-      const t = clamp((performance.now() - start) / 900, 0, 1);
-      door.userData.slab.position.y = 1.7 + t * 3.6;
-      if (t < 1) requestAnimationFrame(anim);
-    })();
+    peerAvatar = null;
   }
 
   /* ============================================================
-     4. Level assembly
+     4. Maze generation + assembly
   ============================================================ */
   let currentLevel = 1;
   let myRole = null;
   let soloMode = false;
   let gameSeed = Math.floor(Math.random()*1e9); // overwritten by the server's 'welcome' message once connected
-  let levelState = null; // {mineSolved, partnerSolved}
-  let sequenceProgress = [];
-  let toggleState = [];
 
-  function buildLevel(level, role, seed){
+  let mazeSize = 7;
+  let wallBoxes = [];
+  let exitPos = null;
+  let levelReached = false;
+
+  // Classic randomized-DFS ("recursive backtracker") maze generator. Both
+  // clients run this with the SAME seed, so they end up with byte-for-byte
+  // the same corridors without either one having to transmit the layout.
+  function generateMaze(seed, size){
+    const rng = mulberry32(seed >>> 0);
+    const cells = [];
+    for (let y=0;y<size;y++){
+      const row = [];
+      for (let x=0;x<size;x++) row.push({ N:true, E:true, S:true, W:true, visited:false });
+      cells.push(row);
+    }
+    const opposite = { N:'S', S:'N', E:'W', W:'E' };
+    const stack = [{ x:0, y:0 }];
+    cells[0][0].visited = true;
+    while (stack.length){
+      const cur = stack[stack.length-1];
+      const neighbors = [];
+      if (cur.y > 0 && !cells[cur.y-1][cur.x].visited) neighbors.push({ x:cur.x, y:cur.y-1, dir:'N' });
+      if (cur.x < size-1 && !cells[cur.y][cur.x+1].visited) neighbors.push({ x:cur.x+1, y:cur.y, dir:'E' });
+      if (cur.y < size-1 && !cells[cur.y+1][cur.x].visited) neighbors.push({ x:cur.x, y:cur.y+1, dir:'S' });
+      if (cur.x > 0 && !cells[cur.y][cur.x-1].visited) neighbors.push({ x:cur.x-1, y:cur.y, dir:'W' });
+      if (!neighbors.length){ stack.pop(); continue; }
+      const pick = neighbors[Math.floor(rng() * neighbors.length)];
+      cells[cur.y][cur.x][pick.dir] = false;
+      cells[pick.y][pick.x][opposite[pick.dir]] = false;
+      cells[pick.y][pick.x].visited = true;
+      stack.push({ x:pick.x, y:pick.y });
+    }
+    return cells;
+  }
+
+  function buildMaze(level, seed){
     clearLevel();
-    const theme = THEMES[role];
-    scene.fog = new THREE.Fog(theme.fog, isTouchDevice ? 5.5 : 4, isTouchDevice ? 20 : 17);
-    scene.background = new THREE.Color(theme.fog);
-    levelGroup.add(buildShell(theme));
+    mazeSize = MAZE_SIZES[Math.min(level-1, MAZE_SIZES.length-1)];
+    const cells = generateMaze(seed + level*97, mazeSize);
+    wallBoxes = [];
+    levelReached = false;
 
-    doorMesh = makeDoor(theme);
-    levelGroup.add(doorMesh);
+    scene.fog = new THREE.Fog(0x0a120c, isTouchDevice ? 5.5 : 4, isTouchDevice ? 20 : 17);
+    scene.background = new THREE.Color(0x050705);
 
-    const mySpec = getPuzzleSpec(seed, level, role);
-    const otherRole = role === 'A' ? 'B' : 'A';
-    const otherSpec = getPuzzleSpec(seed, level, otherRole);
+    const floorMat = new THREE.MeshStandardMaterial({ color:0x171c14, roughness:1 });
+    const ceilMat  = new THREE.MeshStandardMaterial({ color:0x1c2318, roughness:1, emissive:0x1c2318, emissiveIntensity:0.12 });
+    const wallMat  = new THREE.MeshStandardMaterial({ color:0x2a3322, roughness:0.95 });
 
-    // clue sign for the OTHER role's puzzle, mounted on the RIGHT wall
-    const sign = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.7, 0.9),
-      new THREE.MeshBasicMaterial({ map: signTexture(otherSpec.clueTitle, otherSpec.clueValue, theme.accent) })
-    );
-    sign.position.set(ROOM.w/2 - 0.05, 1.7, -1.5);
-    sign.rotation.y = -Math.PI/2;
-    levelGroup.add(sign);
+    const total = mazeSize * CELL;
+    const half = total / 2;
+    function worldX(cx){ return -half + CELL/2 + cx*CELL; }
+    function worldZ(cy){ return -half + CELL/2 + cy*CELL; }
 
-    // own apparatus on LEFT wall
-    sequenceProgress = [];
-    toggleState = mySpec.type === 'toggle' ? new Array(mySpec.count).fill(false) : [];
-    const apparatusGroup = new THREE.Group();
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(total, total), floorMat);
+    floor.rotation.x = -Math.PI/2;
+    levelGroup.add(floor);
 
-    if (mySpec.type === 'pick'){
-      const n = mySpec.labels.length;
-      for (let i=0;i<n;i++){
-        const btn = makeButton(mySpec.labels[i], mySpec.colors[i], 0.9, 0.9);
-        btn.position.set(0, 1.9, -3 + i*1.15);
-        apparatusGroup.add(btn);
-        btn.userData.interactable = true;
-        btn.userData.onClick = (function(idx, g){
-          return function(){
-            if (levelState.mineSolved) return;
-            if (idx === mySpec.answer){
-              setButtonState(g, 'good');
-              solveMine();
-            } else {
-              flashBad(g);
-            }
-          };
-        })(i, btn);
-        interactables.push(btn);
-      }
-    } else if (mySpec.type === 'sequence'){
-      const n = mySpec.poolSize;
-      const cols = n <= 6 ? n : Math.ceil(n/2);
-      for (let i=0;i<n;i++){
-        const label = mySpec.labels[i];
-        const btn = makeButton(label, 0x555045, 0.62, 0.62);
-        const row = Math.floor(i / cols), col = i % cols;
-        const totalCols = Math.min(n, cols);
-        const startZ = -3 - (totalCols-1)*0.36;
-        btn.position.set(0, 2.15 - row*0.72, startZ + col*0.72);
-        apparatusGroup.add(btn);
-        btn.userData.interactable = true;
-        btn.userData.onClick = (function(idx){
-          return function(){
-            if (levelState.mineSolved) return;
-            sequenceProgress.push(idx);
-            setButtonState(btn, 'idle');
-            if (sequenceProgress.length >= mySpec.answer.length){
-              const ok = sequenceProgress.every(function(v,k){ return v === mySpec.answer[k]; });
-              if (ok){ solveMine(); apparatusGroup.children.forEach(function(b){ setButtonState(b,'good'); }); }
-              else {
-                apparatusGroup.children.forEach(function(b){ setButtonState(b,'bad'); });
-                setTimeout(function(){ apparatusGroup.children.forEach(function(b){ setButtonState(b,'idle'); }); }, 500);
-                sequenceProgress = [];
-              }
-            }
-          };
-        })(i);
-        interactables.push(btn);
-      }
-    } else if (mySpec.type === 'toggle'){
-      for (let i=0;i<mySpec.count;i++){
-        const btn = makeButton('OFF', 0x555045, 0.9, 0.55);
-        btn.position.set(0, 2.0, -2.4 + i*1.2);
-        apparatusGroup.add(btn);
-        btn.userData.interactable = true;
-        btn.userData.labelMesh = btn.children[1];
-        btn.userData.onClick = (function(idx, group){
-          return function(){
-            if (levelState.mineSolved) return;
-            toggleState[idx] = !toggleState[idx];
-            group.userData.box.material.color.setHex(toggleState[idx] ? 0x3ac16a : 0x555045);
-            group.userData.box.material.emissive.setHex(toggleState[idx] ? 0x3ac16a : 0x000000);
-          };
-        })(i, btn);
-        interactables.push(btn);
-      }
-      // confirm button
-      const confirmBtn = makeButton('OK', 0x3a6ac1, 0.7, 0.7);
-      confirmBtn.position.set(0, 2.0, -2.4 + mySpec.count*1.2 + 0.4);
-      apparatusGroup.add(confirmBtn);
-      confirmBtn.userData.interactable = true;
-      confirmBtn.userData.onClick = function(){
-        if (levelState.mineSolved) return;
-        const ok = toggleState.every(function(v,k){ return v === mySpec.answer[k]; });
-        if (ok){ solveMine(); setButtonState(confirmBtn, 'good'); }
-        else { flashBad(confirmBtn); }
-      };
-      interactables.push(confirmBtn);
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(total, total), ceilMat);
+    ceil.rotation.x = Math.PI/2; ceil.position.y = WALL_H;
+    levelGroup.add(ceil);
+
+    const wallGeomH = new THREE.BoxGeometry(CELL, WALL_H, 0.2);
+    const wallGeomV = new THREE.BoxGeometry(0.2, WALL_H, CELL);
+
+    function addWall(x, z, horizontal){
+      const mesh = new THREE.Mesh(horizontal ? wallGeomH : wallGeomV, wallMat);
+      mesh.position.set(x, WALL_H/2, z);
+      levelGroup.add(mesh);
+      const hx = horizontal ? CELL/2 : 0.12, hz = horizontal ? 0.12 : CELL/2;
+      wallBoxes.push({ minX:x-hx, maxX:x+hx, minZ:z-hz, maxZ:z+hz });
     }
 
-    // rotating the whole group (identity-oriented children) makes every
-    // button face +x, i.e. into the room from the left wall
-    apparatusGroup.rotation.y = Math.PI/2;
-    apparatusGroup.position.set(-ROOM.w/2 + 0.06, 0, 0);
-    levelGroup.add(apparatusGroup);
+    for (let y=0;y<mazeSize;y++){
+      for (let x=0;x<mazeSize;x++){
+        const c = cells[y][x];
+        const cx = worldX(x), cz = worldZ(y);
+        if (c.N) addWall(cx, cz - CELL/2, true);
+        if (c.W) addWall(cx - CELL/2, cz, false);
+        if (x === mazeSize-1 && c.E) addWall(cx + CELL/2, cz, false);
+        if (y === mazeSize-1 && c.S) addWall(cx, cz + CELL/2, true);
+      }
+    }
 
-    // apparatus name plate above it
-    const plate = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.6, 0.35),
-      new THREE.MeshBasicMaterial({ map: labelTexture(mySpec.apparatusName.toUpperCase(), '#161209', theme.accent) })
+    const mobileBoost = isTouchDevice ? 1.55 : 1;
+    ceilLight = new THREE.PointLight(0xdff0da, 1.0 * mobileBoost, CELL*4, 2);
+    ceilLight.position.set(0, WALL_H-0.3, 0);
+    levelGroup.add(ceilLight);
+    const hemi = new THREE.HemisphereLight(0x445533, 0x0d130c, 0.5 * mobileBoost);
+    levelGroup.add(hemi);
+
+    // a handful of extra lights scattered around so distant corridors
+    // aren't pitch black
+    const lightRng = mulberry32((seed + level*97 + 555) >>> 0);
+    const extraLights = Math.max(3, Math.floor(mazeSize*mazeSize/9));
+    for (let i=0;i<extraLights;i++){
+      const lx = Math.floor(lightRng()*mazeSize), ly = Math.floor(lightRng()*mazeSize);
+      const l = new THREE.PointLight(0xcfe0c8, 0.65 * mobileBoost, CELL*3.4, 2);
+      l.position.set(worldX(lx), WALL_H-0.4, worldZ(ly));
+      levelGroup.add(l);
+    }
+
+    const spawnA = { x: worldX(0), z: worldZ(0) };
+    const spawnB = { x: worldX(mazeSize-1), z: worldZ(mazeSize-1) };
+    const ex = Math.floor(mazeSize/2), ey = Math.floor(mazeSize/2);
+    exitPos = { x: worldX(ex), z: worldZ(ey) };
+
+    const exitMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.9, 0.9, 0.08, 24),
+      new THREE.MeshBasicMaterial({ color:0x6fae52 })
     );
-    plate.position.set(-ROOM.w/2 + 0.06, 3.1, -2);
-    plate.rotation.y = Math.PI/2;
-    levelGroup.add(plate);
+    exitMesh.position.set(exitPos.x, 0.05, exitPos.z);
+    levelGroup.add(exitMesh);
+    const exitGlow = new THREE.PointLight(0x6fae52, 1.4, 4.5, 2);
+    exitGlow.position.set(exitPos.x, 1.2, exitPos.z);
+    levelGroup.add(exitGlow);
 
-    levelState = { mineSolved:false, partnerSolved:false };
-
-    yawObject.position.set(0, EYE_H, SPAWN_Z);
+    const startSpawn = myRole === 'B' ? spawnB : spawnA;
+    yawObject.position.set(startSpawn.x, EYE_H, startSpawn.z);
     yawObject.rotation.set(0,0,0);
     pitchObject.rotation.set(0,0,0);
 
@@ -889,42 +691,49 @@
     bannerEl.hidden = true;
   }
 
-  function flashBad(grp){
-    setButtonState(grp, 'bad');
-    setTimeout(function(){ setButtonState(grp, 'idle'); }, 450);
+  function resolveWallCollisions(pos, radius){
+    for (let iter=0; iter<2; iter++){
+      for (const box of wallBoxes){
+        const closestX = clamp(pos.x, box.minX, box.maxX);
+        const closestZ = clamp(pos.z, box.minZ, box.maxZ);
+        const dx = pos.x - closestX, dz = pos.z - closestZ;
+        const distSq = dx*dx + dz*dz;
+        if (distSq < radius*radius){
+          const dist = Math.sqrt(distSq) || 0.0001;
+          const push = radius - dist;
+          pos.x += (dx/dist) * push;
+          pos.z += (dz/dist) * push;
+        }
+      }
+    }
   }
 
-  function solveMine(){
-    if (levelState.mineSolved) return;
-    levelState.mineSolved = true;
-    sendGameEvent('solved', { level: currentLevel, role: myRole });
-    pushLog('sys', null, 'Resolviste tu mecanismo. Se abrió la puerta de tu compañero.');
-    checkLevelComplete();
-  }
-
-  function onPartnerSolved(level){
-    if (level !== currentLevel) return;
-    levelState.partnerSolved = true;
-    if (doorMesh) openDoor(doorMesh);
-    pushLog('sys', null, 'Tu compañero resolvió su mecanismo. ¡Tu puerta se abrió!');
-    checkLevelComplete();
-  }
-
-  function checkLevelComplete(){
-    if ((levelState.mineSolved && levelState.partnerSolved) || (soloMode && levelState.mineSolved)){
+  function checkExitProximity(){
+    if (levelReached || !exitPos) return;
+    const dx = yawObject.position.x - exitPos.x, dz = yawObject.position.z - exitPos.z;
+    if (dx*dx + dz*dz < 1.1*1.1){
+      levelReached = true;
+      sendGameEvent('exit', { level: currentLevel });
       advanceLevel();
     }
   }
 
+  function onPeerExit(level){
+    if (level !== currentLevel || levelReached) return;
+    levelReached = true;
+    pushLog('sys', null, 'Tu compañero encontró la salida. ¡Síguelo!');
+    advanceLevel();
+  }
+
   function advanceLevel(){
-    bannerTitle.textContent = currentLevel < 3 ? 'Sala superada' : '¡Escaparon!';
-    bannerSub.textContent = currentLevel < 3 ? 'Avanzando a la siguiente sala…' : '';
+    bannerTitle.textContent = currentLevel < 3 ? '¡Encontraron la salida!' : '¡Escaparon del laberinto!';
+    bannerSub.textContent = currentLevel < 3 ? 'Preparando un laberinto más grande…' : '';
     bannerEl.hidden = false;
     exitPointerLockSafely();
     setTimeout(function(){
       if (currentLevel >= 3){ showWin(); return; }
       currentLevel += 1;
-      buildLevel(currentLevel, myRole, gameSeed);
+      buildMaze(currentLevel, gameSeed);
       bannerEl.hidden = true;
       requestLock();
     }, 2200);
@@ -932,13 +741,100 @@
 
   function showWin(){
     gameState = 'win';
+    clearTimeout(screamerTimer);
     screenWin.hidden = false;
-    hud.hidden = true; crosshair.hidden = true; promptEl.hidden = true; comms.hidden = true;
+    hud.hidden = true; crosshair.hidden = true; comms.hidden = true;
     touchControls.hidden = true;
   }
 
   /* ============================================================
-     5. Movement + look
+     5. Peer avatar (the OTHER player, moving in the shared maze)
+  ============================================================ */
+  let peerAvatar = null;
+  const peerTarget = { x:0, z:0, ry:0 };
+
+  function ensurePeerAvatar(){
+    if (peerAvatar) return peerAvatar;
+    const otherRole = myRole === 'A' ? 'B' : 'A';
+    const color = THEMES[otherRole].accent;
+    const grp = new THREE.Group();
+    const body = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.28, 0.34, 1.5, 12),
+      new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity:0.3, roughness:0.6 })
+    );
+    body.position.y = 0.85;
+    grp.add(body);
+    const head = new THREE.Mesh(
+      new THREE.SphereGeometry(0.22, 12, 10),
+      new THREE.MeshStandardMaterial({ color: color, emissive: color, emissiveIntensity:0.35 })
+    );
+    head.position.y = 1.72;
+    grp.add(head);
+    const glow = new THREE.PointLight(color, 0.9, 3.4, 2);
+    glow.position.y = 1.5;
+    grp.add(glow);
+    grp.visible = false;
+    levelGroup.add(grp);
+    peerAvatar = grp;
+    return grp;
+  }
+
+  function updatePeerAvatarTarget(x, z, ry){
+    const av = ensurePeerAvatar();
+    av.visible = true;
+    peerTarget.x = x; peerTarget.z = z; peerTarget.ry = ry;
+  }
+
+  /* ============================================================
+     6. Jumpscares
+  ============================================================ */
+  let screamerTimer = null;
+
+  function scheduleScreamer(){
+    clearTimeout(screamerTimer);
+    const delay = 9000 + Math.random()*13000; // 9-22s
+    screamerTimer = setTimeout(triggerScreamer, delay);
+  }
+
+  function triggerScreamer(){
+    if (gameState !== 'playing'){ scheduleScreamer(); return; }
+    screamerOverlay.classList.add('show');
+    playScreamSound();
+    if (navigator.vibrate){ try{ navigator.vibrate([70,40,120]); }catch(e){} }
+    setTimeout(function(){
+      screamerOverlay.classList.remove('show');
+      scheduleScreamer();
+    }, 550);
+  }
+
+  function playScreamSound(){
+    if (!audioCtx) return;
+    try{
+      const now = audioCtx.currentTime;
+      const dur = 0.42;
+      const buffer = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate*dur), audioCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i=0;i<data.length;i++){ data[i] = (Math.random()*2-1) * (1 - i/data.length); }
+      const noise = audioCtx.createBufferSource();
+      noise.buffer = buffer;
+      const ng = audioCtx.createGain();
+      ng.gain.value = Math.min(1, (volume/100) * 1.5);
+      noise.connect(ng); ng.connect(audioCtx.destination);
+      noise.start(now);
+
+      const osc = audioCtx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(1400, now);
+      osc.frequency.exponentialRampToValueAtTime(90, now + dur);
+      const og = audioCtx.createGain();
+      og.gain.value = Math.min(1, (volume/100) * 1.2);
+      osc.connect(og); og.connect(audioCtx.destination);
+      osc.start(now); osc.stop(now + dur + 0.02);
+    }catch(e){ /* ignore */ }
+  }
+
+  /* ============================================================
+     7. Movement + look
   ============================================================ */
   const keys = Object.create(null);
   let chatOpen = false;
@@ -990,13 +886,6 @@
     }
   });
 
-  canvas.addEventListener('mousedown', function(e){
-    if (e.button !== 0) return;
-    if (document.pointerLockElement !== canvas) return;
-    if (gameState !== 'playing') return;
-    tryInteract();
-  });
-
   /* ---- touch controls: virtual joystick (move) + drag-to-look ---- */
   let joyTouchId = null, lookTouchId = null;
   const joyVec = { x: 0, y: 0 };
@@ -1031,7 +920,7 @@
       const el = document.elementFromPoint(t.clientX, t.clientY);
       if (joyTouchId === null && el && (el === joyBase || el === joyKnob || joyBase.contains(el))){
         joyTouchId = t.identifier;
-      } else if (lookTouchId === null && el && (el === touchInteractBtn || el === touchChatBtn || el === touchMenuBtn)){
+      } else if (lookTouchId === null && el && (el === touchChatBtn || el === touchMenuBtn)){
         // let the button's own handler deal with it
       } else if (lookTouchId === null){
         lookTouchId = t.identifier;
@@ -1090,16 +979,6 @@
   joyBase.addEventListener('touchend', endTouch, { passive: true });
   joyBase.addEventListener('touchcancel', endTouch, { passive: true });
 
-  touchInteractBtn.addEventListener('touchstart', function(e){
-    e.preventDefault();
-    touchInteractBtn.classList.add('active');
-    if (gameState === 'playing') tryInteract();
-  }, { passive: false });
-  touchInteractBtn.addEventListener('touchend', function(e){
-    e.preventDefault();
-    touchInteractBtn.classList.remove('active');
-  }, { passive: false });
-
   touchChatBtn.addEventListener('touchstart', function(e){
     e.preventDefault();
     if (gameState === 'playing' && !chatOpen) openChat();
@@ -1110,32 +989,6 @@
     if (gameState === 'playing') pauseGame();
     else if (gameState === 'paused') resumeGame();
   }, { passive: false });
-
-  const raycaster = new THREE.Raycaster();
-  const centerV2 = new THREE.Vector2(0,0);
-  let hovered = null;
-
-  function updateHover(){
-    if (!isRigActive()){
-      promptEl.hidden = true; hovered = null; return;
-    }
-    camera.updateMatrixWorld(true);
-    raycaster.setFromCamera(centerV2, camera);
-    const hits = raycaster.intersectObjects(interactables, true);
-    if (hits.length && hits[0].distance < 3.4){
-      let obj = hits[0].object;
-      while (obj && !obj.userData.interactable) obj = obj.parent;
-      hovered = obj || null;
-      promptEl.hidden = !hovered || isTouchDevice;
-      if (hovered) promptEl.textContent = 'Click para usar';
-    } else {
-      hovered = null; promptEl.hidden = true;
-    }
-  }
-
-  function tryInteract(){
-    if (hovered && hovered.userData.onClick){ hovered.userData.onClick(); }
-  }
 
   function updateMovement(delta){
     if (!isRigActive()) return;
@@ -1148,22 +1001,23 @@
       if (keys['a']) mx -= 1;
       if (keys['d']) mx += 1;
     }
-    if (mx === 0 && mz === 0) return;
-    const len = Math.hypot(mx, mz);
-    if (len > 1){ mx /= len; mz /= len; }
-    const speed = keys['shift'] ? 4.6 : 2.7;
-    const yaw = yawObject.rotation.y;
-    const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
-    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-    const pos = yawObject.position;
-    pos.addScaledVector(forward, -mz * speed * delta);
-    pos.addScaledVector(right, mx * speed * delta);
-    pos.x = clamp(pos.x, -ROOM.w/2 + 0.55, ROOM.w/2 - 0.55);
-    pos.z = clamp(pos.z, -ROOM.d/2 + 0.55, ROOM.d/2 - 0.55);
+    if (mx !== 0 || mz !== 0){
+      const len = Math.hypot(mx, mz);
+      if (len > 1){ mx /= len; mz /= len; }
+      const speed = keys['shift'] ? 4.6 : 2.7;
+      const yaw = yawObject.rotation.y;
+      const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+      const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+      const pos = yawObject.position;
+      pos.addScaledVector(forward, -mz * speed * delta);
+      pos.addScaledVector(right, mx * speed * delta);
+      resolveWallCollisions(pos, 0.42);
+    }
+    checkExitProximity();
   }
 
   /* ============================================================
-     6. Chat / comms
+     8. Chat / comms
   ============================================================ */
   function pushLog(kind, from, text){
     const div = document.createElement('div');
@@ -1171,7 +1025,7 @@
     if (kind === 'sys'){ div.textContent = text; }
     else {
       const b = document.createElement('b');
-      b.textContent = (from === 'A' ? 'Sala Amarilla' : 'Sala Verde') + ':';
+      b.textContent = (THEMES[from] ? THEMES[from].name : from) + ':';
       div.appendChild(b);
       div.appendChild(document.createTextNode(text));
     }
@@ -1214,15 +1068,15 @@
   });
 
   /* ============================================================
-     7. Pause menu
+     9. Pause menu
   ============================================================ */
   let gameState = 'start'; // start | waiting | playing | paused | win
 
   function pauseGame(){
     gameState = 'paused';
     screenPause.hidden = false;
-    $('pauseSub').textContent = 'Nivel ' + currentLevel + ' de 3';
-    hud.hidden = true; crosshair.hidden = true; promptEl.hidden = true;
+    $('pauseSub').textContent = 'Laberinto ' + currentLevel + ' de 3';
+    hud.hidden = true; crosshair.hidden = true;
     touchControls.hidden = true;
   }
   function resumeGame(){
@@ -1255,7 +1109,7 @@
   });
 
   /* ============================================================
-     8. Ambient hum (WebAudio, starts on user gesture)
+     10. Ambient hum (WebAudio, starts on user gesture)
   ============================================================ */
   let audioCtx = null, gainNode = null;
   function initAudio(){
@@ -1280,7 +1134,7 @@
   }
 
   /* ============================================================
-     9. Multiplayer over a plain WebSocket to our own server
+     11. Multiplayer over a plain WebSocket to our own server
   ============================================================ */
   let socket = null;
   let peerConnected = false;
@@ -1327,10 +1181,11 @@
     hud.hidden = false; crosshair.hidden = false; comms.hidden = false;
     touchControls.hidden = !isTouchDevice;
     currentLevel = 1;
-    buildLevel(currentLevel, myRole, gameSeed);
-    pushLog('sys', null, 'Bienvenido a ' + THEMES[myRole].name + '. Cuéntale a tu compañero lo que ves.');
+    buildMaze(currentLevel, gameSeed);
+    pushLog('sys', null, 'Eres el ' + THEMES[myRole].name + '. Busquen juntos la salida — y cuidado con los sustos.');
     requestLock();
     tryLockLandscape();
+    scheduleScreamer();
   }
 
   function updatePeerUI(){
@@ -1418,10 +1273,14 @@
       } else if (msg.type === 'peer_left'){
         peerConnected = false;
         updatePeerUI();
-        if (gameState === 'playing') pushLog('sys', null, 'Tu compañero se desconectó. Puedes seguir explorando; sus puertas quedarán como estaban.');
-      } else if (msg.type === 'solved'){
+        if (peerAvatar) peerAvatar.visible = false;
+        if (gameState === 'playing') pushLog('sys', null, 'Tu compañero se desconectó.');
+      } else if (msg.type === 'exit'){
         if (gameState !== 'playing' || msg.role === myRole) return;
-        onPartnerSolved(msg.level);
+        onPeerExit(msg.level);
+      } else if (msg.type === 'pos'){
+        if (msg.role === myRole) return;
+        if (gameState === 'playing') updatePeerAvatarTarget(msg.x, msg.z, msg.ry);
       } else if (msg.type === 'chat'){
         if (msg.role === myRole) return;
         pushLog('chat', msg.role, String(msg.text || '').slice(0, 200));
@@ -1444,19 +1303,36 @@
   }
 
   /* ============================================================
-     10. Main loop
+     12. Main loop
   ============================================================ */
   const clock = new THREE.Clock();
+  let posSendAccum = 0;
   function loop(){
     requestAnimationFrame(loop);
     const delta = Math.min(clock.getDelta(), 0.06);
     updateMovement(delta);
-    updateHover();
+
     if (ceilLight){
       flickerSeed += delta;
       const flicker = 1 + Math.sin(flickerSeed*7)*0.04 + (Math.random()<0.01 ? -0.3 : 0);
-      ceilLight.intensity = 1.1 * (isTouchDevice ? 1.55 : 1) * clamp(flicker, 0.5, 1.2);
+      ceilLight.intensity = 1.0 * (isTouchDevice ? 1.55 : 1) * clamp(flicker, 0.5, 1.2);
     }
+
+    if (peerAvatar && peerAvatar.visible){
+      const lerp = Math.min(1, delta*10);
+      peerAvatar.position.x += (peerTarget.x - peerAvatar.position.x) * lerp;
+      peerAvatar.position.z += (peerTarget.z - peerAvatar.position.z) * lerp;
+      peerAvatar.rotation.y = peerTarget.ry;
+    }
+
+    if (gameState === 'playing' && !soloMode){
+      posSendAccum += delta;
+      if (posSendAccum > 0.09){
+        posSendAccum = 0;
+        sendGameEvent('pos', { x: yawObject.position.x, z: yawObject.position.z, ry: yawObject.rotation.y });
+      }
+    }
+
     renderer.render(scene, camera);
   }
   requestAnimationFrame(loop);
