@@ -86,26 +86,6 @@
   body.touch-device #comms-hint{ font-size:12.5px; padding:4px 10px; }
   body.touch-device #crosshair{ width:8px; height:8px; }
 
-  /* ---------- rotate-to-landscape prompt ---------- */
-  #rotateOverlay{
-    position:fixed; inset:0; z-index:999;
-    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
-    background:rgba(6,5,3,0.96);
-    text-align:center; padding:24px;
-  }
-  #rotateOverlay .rotate-icon{
-    font-size:54px;
-    animation:rotateHint 1.6s ease-in-out infinite;
-  }
-  #rotateOverlay p{
-    font-family:"IBM Plex Sans", sans-serif; font-size:16px; color:var(--text);
-    max-width:280px; line-height:1.5; margin:0;
-  }
-  @keyframes rotateHint{
-    0%,100%{ transform:rotate(0deg); }
-    50%{ transform:rotate(-90deg); }
-  }
-
   /* ---------- shared overlay chrome ---------- */
   .overlay{
     position:absolute; inset:0;
@@ -326,11 +306,6 @@
 <div id="app">
   <canvas id="scene"></canvas>
 
-  <div id="rotateOverlay" hidden>
-    <div class="rotate-icon">📱</div>
-    <p>Gira tu celular a horizontal para ver mejor y jugar más cómodo.</p>
-  </div>
-
   <div id="hud" hidden>
     <div class="hud-badge">
       <span class="role-chip" id="roleChip"></span>
@@ -528,19 +503,10 @@
   const comms = $('comms'), commsLog = $('comms-log'), commsBar = $('comms-bar'), commsInput = $('commsInput');
   const bannerEl = $('banner'), bannerTitle = $('bannerTitle'), bannerSub = $('bannerSub');
 
-  /* ---- rotate-to-landscape hint (phones only) ---- */
-  const rotateOverlay = $('rotateOverlay');
-  function isPortrait(){
-    return window.matchMedia ? matchMedia('(orientation: portrait)').matches : innerHeight > innerWidth;
-  }
-  function checkOrientation(){
-    if (!isTouchDevice){ rotateOverlay.hidden = true; return; }
-    rotateOverlay.hidden = !isPortrait();
-  }
-  addEventListener('resize', checkOrientation);
-  addEventListener('orientationchange', checkOrientation);
-  checkOrientation();
-
+  // Best-effort: ask the browser for landscape once gameplay starts. This
+  // silently does nothing where it isn't supported (iOS Safari) — the game
+  // still just renders at whatever size/orientation the phone reports, no
+  // overlay or gate involved.
   function tryLockLandscape(){
     if (!isTouchDevice) return;
     try{
