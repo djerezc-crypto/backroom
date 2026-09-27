@@ -1004,7 +1004,6 @@
     buildFloorBlood(x, z, rng);
     return grp;
   }
-  const CONNECTOR_GAP = CELL * 1.15; // short vestibule where each connecting door lives
 
   // Which world-X index a room occupies, given how far along the chain it is.
   function zoneIndexForX(x){
@@ -1075,9 +1074,13 @@
     // Lay the rooms out left to right, each centered on its own X offset,
     // all sharing the same Z centerline (works out exactly since every
     // MAZE_SIZES entry is odd, so each room's middle row sits at Z=0).
+    // Rooms sit flush against each other — no vestibule/hallway between
+    // them — so each door is set directly into the shared wall between
+    // one room and the next, and opening it reveals that next room
+    // immediately instead of a connecting corridor.
     const offsets = [0];
     for (let i=1;i<MAZE_SIZES.length;i++){
-      offsets.push(offsets[i-1] + MAZE_SIZES[i-1]*CELL/2 + CONNECTOR_GAP + MAZE_SIZES[i]*CELL/2);
+      offsets.push(offsets[i-1] + MAZE_SIZES[i-1]*CELL/2 + MAZE_SIZES[i]*CELL/2);
     }
 
     for (let i=0;i<MAZE_SIZES.length;i++){
@@ -1163,9 +1166,11 @@
       // Fixed doorway cells: exit always on the E side (rightmost column,
       // middle row); entry (rooms after the first) always on the W side —
       // forced open regardless of the generated maze, so every room lines
-      // up cleanly with its neighbor's connector.
+      // up cleanly against the next one, sharing a single wall with the
+      // door set directly into it (rooms sit flush, no hallway in between).
       const ex = size - 1, ey = Math.floor(size/2);
       const enx = 0, eny = Math.floor(size/2);
+      const hasNextZone = i < MAZE_SIZES.length - 1;
 
       for (let y=0;y<size;y++){
         for (let x=0;x<size;x++){
@@ -1175,7 +1180,11 @@
           const isExitOpening = (x === ex && y === ey);
           if (c.N) addWall(cx, cz - CELL/2, true);
           if (c.W && !isEntryOpening) addWall(cx - CELL/2, cz, false);
-          if (x === size-1 && c.E && !isExitOpening) addWall(cx + CELL/2, cz, false);
+          // The shared wall between this room and the next one is built
+          // only once — by the NEXT room's west boundary below — so it
+          // isn't drawn twice (z-fighting) at the same plane. Only the
+          // very last room's east edge is an actual outer wall.
+          if (x === size-1 && c.E && !isExitOpening && !hasNextZone) addWall(cx + CELL/2, cz, false);
           if (y === size-1 && c.S) addWall(cx, cz + CELL/2, true);
         }
       }
@@ -1325,47 +1334,11 @@
       });
 
       if (i > 0){
-        // The connector vestibule between this room and the previous one —
-        // a short stub of floor/ceiling/walls so the doorway doesn't just
-        // open onto a void, with the previous room's door sitting inside it.
-        const prev = zones[i-1];
-        const gapCenterX = (prev.maxX + (offsetX - half)) / 2;
-        const gapWidth = (offsetX - half) - prev.maxX;
-
-        const connFloorMat = new THREE.MeshStandardMaterial({ map: FLOOR_TEXTURE.clone(), roughness: 1 });
-        connFloorMat.map.wrapS = connFloorMat.map.wrapT = THREE.RepeatWrapping;
-        connFloorMat.map.repeat.set(gapWidth / 1.3, CELL / 1.3);
-        const connFloor = new THREE.Mesh(new THREE.PlaneGeometry(gapWidth, CELL), connFloorMat);
-        connFloor.rotation.x = -Math.PI/2; connFloor.position.set(gapCenterX, 0, 0);
-        levelGroup.add(connFloor);
-
-        const connCeilMat = new THREE.MeshStandardMaterial({ map: CEIL_TEXTURE.clone(), roughness: 0.9 });
-        connCeilMat.map.wrapS = connCeilMat.map.wrapT = THREE.RepeatWrapping;
-        connCeilMat.map.repeat.set(gapWidth / 1.2, CELL / 1.2);
-        const connCeil = new THREE.Mesh(new THREE.PlaneGeometry(gapWidth, CELL), connCeilMat);
-        connCeil.rotation.x = Math.PI/2; connCeil.position.set(gapCenterX, WALL_H, 0);
-        levelGroup.add(connCeil);
-
-        const connWater = new THREE.Mesh(new THREE.PlaneGeometry(gapWidth, CELL), WATER_MAT);
-        connWater.rotation.x = -Math.PI/2; connWater.position.set(gapCenterX, 0.12, 0);
-        levelGroup.add(connWater);
-        waterMeshes.push(connWater);
-
-        const sideGeom = new THREE.BoxGeometry(gapWidth, WALL_H, 0.2);
-        [-1, 1].forEach(function(side){
-          const wall = new THREE.Mesh(sideGeom, WALL_MAT);
-          wall.position.set(gapCenterX, WALL_H/2, side*CELL/2);
-          levelGroup.add(wall);
-          wallBoxes.push({ minX: gapCenterX-gapWidth/2, maxX: gapCenterX+gapWidth/2, minZ: side*CELL/2-0.1, maxZ: side*CELL/2+0.1 });
-        });
-
-        const connLight = new THREE.PointLight(0xdde6d7, 0.4 * mobileBoost, CELL*2.6, 2);
-        connLight.position.set(gapCenterX, WALL_H-0.4, 0);
-        levelGroup.add(connLight);
-        activeLights.push({ light: connLight, base: 0.4, phase: Math.random()*100 });
-        addFixture(gapCenterX, 0);
-
-        zoneBoundaries.push(gapCenterX);
+        // Rooms sit flush against each other now — the door built above IS
+        // the shared wall between this room and the previous one, so the
+        // zone switch simply happens the instant the player crosses that
+        // shared plane (no vestibule to walk through first).
+        zoneBoundaries.push(offsetX - half);
       }
     }
 
