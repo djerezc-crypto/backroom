@@ -606,6 +606,9 @@
     levelGroup = new THREE.Group();
     scene.add(levelGroup);
     peerAvatar = null;
+    monster = null;
+    monsterState = null;
+    clearTimeout(monsterSpawnTimer);
   }
 
   /* ============================================================
@@ -620,6 +623,8 @@
   let wallBoxes = [];
   let exitPos = null;
   let levelReached = false;
+  let mazeCells = null;   // current level's cell grid, kept for the monster's pathfinding
+  let worldXG = null, worldZG = null; // grid->world helpers for the current level (set in buildMaze)
 
   // Classic randomized-DFS ("recursive backtracker") maze generator. Both
   // clients run this with the SAME seed, so they end up with byte-for-byte
@@ -650,6 +655,46 @@
       stack.push({ x:pick.x, y:pick.y });
     }
     return cells;
+  }
+
+  // Shortest path between two grid cells, walking only through open
+  // doorways (a cell's N/E/S/W is a WALL, so a false means it's open).
+  // Used by the monster to hunt the player through the actual corridors
+  // instead of walking through walls. The maze is always fully connected
+  // (it's a spanning tree by construction), so a path always exists.
+  function bfsPath(cells, size, start, goal){
+    const key = function(x, y){ return y * size + x; };
+    const visited = new Array(size * size).fill(false);
+    const prev = new Array(size * size).fill(-1);
+    const queue = [start];
+    visited[key(start.x, start.y)] = true;
+    while (queue.length){
+      const cur = queue.shift();
+      if (cur.x === goal.x && cur.y === goal.y) break;
+      const c = cells[cur.y][cur.x];
+      const neighbors = [];
+      if (!c.N && cur.y > 0) neighbors.push({ x: cur.x, y: cur.y - 1 });
+      if (!c.E && cur.x < size - 1) neighbors.push({ x: cur.x + 1, y: cur.y });
+      if (!c.S && cur.y < size - 1) neighbors.push({ x: cur.x, y: cur.y + 1 });
+      if (!c.W && cur.x > 0) neighbors.push({ x: cur.x - 1, y: cur.y });
+      for (let i = 0; i < neighbors.length; i++){
+        const n = neighbors[i], k = key(n.x, n.y);
+        if (!visited[k]){
+          visited[k] = true;
+          prev[k] = key(cur.x, cur.y);
+          queue.push(n);
+        }
+      }
+    }
+    const path = [];
+    let curKey = key(goal.x, goal.y);
+    if (!visited[curKey]) return path;
+    while (curKey !== -1){
+      path.push({ x: curKey % size, y: Math.floor(curKey / size) });
+      curKey = prev[curKey];
+    }
+    path.reverse();
+    return path;
   }
 
   // --- Procedural "Escape the Backrooms" style textures ------------------
@@ -763,6 +808,9 @@
     const half = total / 2;
     function worldX(cx){ return -half + CELL/2 + cx*CELL; }
     function worldZ(cy){ return -half + CELL/2 + cy*CELL; }
+    mazeCells = cells;
+    worldXG = worldX;
+    worldZG = worldZ;
 
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(total, total), floorMat);
     floor.rotation.x = -Math.PI/2;
@@ -901,6 +949,9 @@
   function showWin(){
     gameState = 'win';
     clearTimeout(screamerTimer);
+    clearTimeout(monsterSpawnTimer);
+    if (monster) monster.visible = false;
+    monsterState = null;
     screenWin.hidden = false;
     hud.hidden = true; crosshair.hidden = true; comms.hidden = true;
     touchControls.hidden = true;
@@ -1050,24 +1101,134 @@
   }
 
   /* ============================================================
-     6. Jumpscares
+     6. The screamer — an actual entity that hunts you through the
+        maze's real corridors (BFS pathfinding over the same cell grid
+        used to build the walls), instead of a blind random jump-scare.
+        It's client-local: each player is stalked by their own instance,
+        so there's no networking to keep in sync.
   ============================================================ */
-  let screamerTimer = null;
+  let screamerTimer = null;   // kept only for showWin() to clear on the win screen
+  let monster = null;         // THREE.Group, the visible stalker
+  let monsterState = null;    // { path, pathIndex, speed, repathTimer }
+  let monsterSpawnTimer = null;
 
-  function scheduleScreamer(){
-    clearTimeout(screamerTimer);
-    const delay = 9000 + Math.random()*13000; // 9-22s
-    screamerTimer = setTimeout(triggerScreamer, delay);
+  function buildMonster(){
+    const grp = new THREE.Group();
+    const dark = new THREE.MeshStandardMaterial({ color: 0x07060a, roughness: 1 });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.34, 1.85, 10), dark);
+    body.position.y = 0.95;
+    grp.add(body);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10), dark);
+    head.position.y = 1.95;
+    head.scale.set(0.85, 1.15, 0.9);
+    grp.add(head);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2b2b });
+    [-1, 1].forEach(function(side){
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 6, 6), eyeMat);
+      eye.position.set(side * 0.075, 1.98, -0.185);
+      grp.add(eye);
+    });
+    const glow = new THREE.PointLight(0xff2b2b, 0.6, 2.4, 2);
+    glow.position.y = 1.95;
+    grp.add(glow);
+    grp.visible = false;
+    return grp;
+  }
+
+  // Which grid cell a world position falls in — the inverse of buildMaze's
+  // worldX()/worldZ(), used so the monster can re-path from wherever it and
+  // the player currently stand.
+  function cellOfWorld(x, z){
+    const half = mazeSize * CELL / 2;
+    const cx = Math.round((x + half - CELL / 2) / CELL);
+    const cy = Math.round((z + half - CELL / 2) / CELL);
+    return { x: clamp(cx, 0, mazeSize - 1), y: clamp(cy, 0, mazeSize - 1) };
+  }
+
+  function scheduleMonsterSpawn(){
+    clearTimeout(monsterSpawnTimer);
+    const delay = 12000 + Math.random()*10000; // 12-22s of calm before the hunt starts
+    monsterSpawnTimer = setTimeout(spawnMonster, delay);
+  }
+
+  function spawnMonster(){
+    if (gameState !== 'playing' || !mazeCells){ scheduleMonsterSpawn(); return; }
+    if (!monster){ monster = buildMonster(); levelGroup.add(monster); }
+    const playerCell = cellOfWorld(yawObject.position.x, yawObject.position.z);
+    // Try a few random spawn cells and pick whichever is FARTHEST from the
+    // player by actual corridor distance, so it appears far away and has
+    // to visibly close the distance rather than popping up next to you.
+    let best = null;
+    for (let i = 0; i < 8; i++){
+      const cand = { x: Math.floor(Math.random()*mazeSize), y: Math.floor(Math.random()*mazeSize) };
+      const path = bfsPath(mazeCells, mazeSize, cand, playerCell);
+      if (path.length > 1 && (!best || path.length > best.path.length)){
+        best = { cell: cand, path: path };
+      }
+    }
+    if (!best) { scheduleMonsterSpawn(); return; }
+    monsterState = { path: best.path, pathIndex: 1, speed: 2.95, repathTimer: 0 };
+    monster.position.set(worldXG(best.cell.x), 0, worldZG(best.cell.y));
+    monster.visible = true;
+  }
+
+  function despawnMonster(){
+    if (monster) monster.visible = false;
+    monsterState = null;
+    scheduleMonsterSpawn();
+  }
+
+  function updateMonster(delta){
+    if (gameState !== 'playing' || !monster || !monsterState) return;
+    const st = monsterState;
+
+    // Re-path toward the player's CURRENT cell periodically — they're
+    // moving too, so a one-shot path from spawn time would go stale.
+    st.repathTimer += delta;
+    if (st.repathTimer > 0.6){
+      st.repathTimer = 0;
+      const from = cellOfWorld(monster.position.x, monster.position.z);
+      const to = cellOfWorld(yawObject.position.x, yawObject.position.z);
+      const path = bfsPath(mazeCells, mazeSize, from, to);
+      if (path.length) { st.path = path; st.pathIndex = Math.min(1, path.length - 1); }
+    }
+
+    if (st.pathIndex < st.path.length){
+      const target = st.path[st.pathIndex];
+      const tx = worldXG(target.x), tz = worldZG(target.y);
+      const dx = tx - monster.position.x, dz = tz - monster.position.z;
+      const dist = Math.hypot(dx, dz);
+      const step = st.speed * delta;
+      if (dist <= step || dist < 0.05){
+        monster.position.x = tx; monster.position.z = tz;
+        st.pathIndex++;
+      } else {
+        monster.position.x += (dx/dist) * step;
+        monster.position.z += (dz/dist) * step;
+        monster.rotation.y = Math.atan2(-dx, -dz);
+      }
+    }
+    // A slight uneven bob so it doesn't glide like it's on rails.
+    monster.position.y = Math.sin(performance.now() * 0.006) * 0.04;
+
+    const pdx = monster.position.x - yawObject.position.x;
+    const pdz = monster.position.z - yawObject.position.z;
+    if (Math.hypot(pdx, pdz) < 1.05){
+      catchPlayer();
+    }
+  }
+
+  function catchPlayer(){
+    triggerScreamer();
+    despawnMonster();
   }
 
   function triggerScreamer(){
-    if (gameState !== 'playing'){ scheduleScreamer(); return; }
     screamerOverlay.classList.add('show');
     playScreamSound();
     if (navigator.vibrate){ try{ navigator.vibrate([70,40,120]); }catch(e){} }
     setTimeout(function(){
       screamerOverlay.classList.remove('show');
-      scheduleScreamer();
     }, 550);
   }
 
@@ -1461,7 +1622,7 @@
     pushLog('sys', null, 'Eres el ' + THEMES[myRole].name + '. Busquen juntos la salida — y cuidado con los sustos.');
     requestLock();
     tryLockLandscape();
-    scheduleScreamer();
+    scheduleMonsterSpawn();
     sendAppearance();
   }
 
@@ -1592,6 +1753,7 @@
     requestAnimationFrame(loop);
     const delta = Math.min(clock.getDelta(), 0.06);
     updateMovement(delta);
+    updateMonster(delta);
 
     if (ceilLight){
       flickerSeed += delta;
