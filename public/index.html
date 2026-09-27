@@ -593,8 +593,11 @@
   /* ============================================================
      3. Three.js persistent rig
   ============================================================ */
-  const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias:true });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: !isTouchDevice, powerPreference: 'high-performance' });
+  // Phones/tablets get a lower render resolution cap — a big chunk of the
+  // frame cost is just pixels shaded, and this is the cheapest way to keep
+  // things smooth on weaker mobile GPUs.
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouchDevice ? 1.5 : 2));
   // A touch more realism: filmic tone mapping + correct color space so the
   // warm lights roll off naturally instead of just clipping to white.
   if (THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
@@ -991,7 +994,10 @@
       fixture.rotation.x = Math.PI/2;
       fixture.position.set(x, WALL_H - 0.02, z);
       levelGroup.add(fixture);
-      if (!dead){
+      // The soft light-shaft cone is transparent+additive, which means real
+      // overdraw cost — skip it on phones/tablets, where that cost is what
+      // actually causes stutter, and keep it only for desktop.
+      if (!dead && !isTouchDevice){
         const coneH = WALL_H * 0.85;
         const cone = new THREE.Mesh(new THREE.ConeGeometry(CELL*0.42, coneH, 12, 1, true), LIGHT_CONE_MAT);
         cone.position.set(x, WALL_H - 0.02 - coneH/2, z);
@@ -1118,7 +1124,11 @@
 
       const lightRng = mulberry32((seed + level*97 + 555) >>> 0);
       const pipeRng = mulberry32((seed + level*97 + 8888) >>> 0);
-      const extraLightCount = Math.max(3, Math.floor(size*size/9));
+      // Real-time point lights are the single most expensive thing here —
+      // every one of them gets looped over in the fragment shader for every
+      // lit pixel on screen, whatever its distance falloff. Phones get far
+      // fewer of them, which is the main fix for mobile stutter.
+      const extraLightCount = Math.max(3, Math.floor(size*size / (isTouchDevice ? 20 : 9)));
       const usedFixtureCells = [];
       for (let li=0; li<extraLightCount; li++){
         const lx = Math.floor(lightRng()*size), ly = Math.floor(lightRng()*size);
@@ -1133,21 +1143,23 @@
         }
         addFixture(worldX(lx), worldZ(ly), dead);
         usedFixtureCells.push(lx + ',' + ly);
-        if (pipeRng() < 0.4){
+        if (pipeRng() < (isTouchDevice ? 0.16 : 0.4)){
           buildPipeCluster(pipeRng, worldX(lx), worldZ(ly));
         }
       }
 
       // Low-density decorative columns scattered through open interior
       // cells — visual clutter only (no collision), so the maze's solvable
-      // path is never at risk of being blocked.
+      // path is never at risk of being blocked. Thinned out further on
+      // mobile since every extra mesh is an extra draw call.
       const propRng = mulberry32((seed + level*97 + 2323) >>> 0);
+      const propChance = isTouchDevice ? 0.012 : 0.03;
       for (let y=0;y<size;y++){
         for (let x=0;x<size;x++){
           const isEntry = (i > 0 && x === enx && y === eny) || (i === 0 && x===0 && y===0) || (i===0 && x===size-1 && y===size-1);
           const isExit = x === ex && y === ey;
           if (isEntry || isExit) continue;
-          if (propRng() < 0.03){
+          if (propRng() < propChance){
             const jitter = CELL * 0.28;
             buildColumn(worldX(x) + (propRng()-0.5)*jitter, worldZ(y) + (propRng()-0.5)*jitter);
           }
