@@ -808,14 +808,6 @@
   let peerAppearance = null; // {shirt, pants} received from the peer, if any
   const peerTarget = { x:0, z:0, ry:0 };
 
-  const FACE_TEXTURE = new THREE.TextureLoader().load('face.png');
-  // The face plane is rotated 180° (see buildHumanFigure) so it faces the
-  // avatar's forward direction instead of backwards; that rotation mirrors
-  // the image, so we mirror the texture's U axis back to undo it.
-  FACE_TEXTURE.wrapS = THREE.RepeatWrapping;
-  FACE_TEXTURE.repeat.x = -1;
-  FACE_TEXTURE.offset.x = 1;
-
   // Fallback shirt/pants + a fixed skin tone, derived from the game seed +
   // role, used only until the peer's own chosen colors (picked on the
   // start screen) arrive over the network.
@@ -843,56 +835,60 @@
     head.position.y = 0.5 + 0.54 + headRadius;
     grp.add(head);
 
-    // the character's face — sculpted, not a flat cutout. We start from a
-    // plane, then push its vertices outward into a shallow dome so the
-    // photo actually curves around the head like a face instead of
-    // floating in front of it like a photo taped to a box. Real vertex
-    // normals are recomputed on the dome, so it catches light and reads
-    // as a 3D surface. A small nose bump and a hair cap on top finish
-    // the look, since the goal is "looks like the person in 3D", not a
-    // literal, unmodified photo.
-    const faceGeom = new THREE.PlaneGeometry(0.27, 0.31, 16, 18);
-    {
-      const pos = faceGeom.attributes.position;
-      const bulge = 0.055; // how far the center pokes out past the edges
-      const falloff = 0.19;
-      for (let i = 0; i < pos.count; i++){
-        const x = pos.getX(i), y = pos.getY(i);
-        const d = Math.min(1, Math.sqrt(x * x + y * y) / falloff);
-        pos.setZ(i, Math.cos(d * Math.PI / 2) * bulge);
-      }
-      faceGeom.computeVertexNormals();
-    }
-    // Facing forward (-Z, the avatar's walk direction) means rotating the
-    // dome 180° around Y — a plain plane's normal points +Z by default,
-    // which is backwards. That rotation also mirrors the image left/right,
-    // which FACE_TEXTURE's flipped U offset (set above) already cancels
-    // out. DoubleSide is a safety net so the face is never invisible.
-    const faceMat = new THREE.MeshStandardMaterial({
-      map: FACE_TEXTURE,
-      transparent: true,
-      side: THREE.DoubleSide,
-      roughness: 0.9
-    });
-    const face = new THREE.Mesh(faceGeom, faceMat);
-    face.rotation.y = Math.PI;
-    face.position.set(0, head.position.y + 0.01, -0.145);
-    grp.add(face);
+    // the character's face — fully sculpted out of simple 3D shapes, no
+    // flat photo mounted on anything. Nose, eyes, eyebrows and mouth are
+    // small solid meshes built out from the head's surface, and the head
+    // itself is stretched slightly so it has a face-like front instead of
+    // being a plain ball. Colors (skin, hair, eyes) approximate the
+    // reference photo — a light-tan skin tone and short dark-brown hair —
+    // per "a tu manera, da igual si no queda tal cual".
+    head.scale.set(1.08, 1.14, 0.92);
 
-    // A small nose bump for extra depth in the middle of the face.
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.028, 8, 8), skinMat);
-    nose.position.set(0, head.position.y - 0.015, -0.19);
+    const hairMat = new THREE.MeshStandardMaterial({ color: 0x2b1d12, roughness: 0.9 });
+    const eyeMat = new THREE.MeshStandardMaterial({ color: 0x1c140f, roughness: 0.5 });
+    const mouthMat = new THREE.MeshStandardMaterial({ color: 0x7a3b34, roughness: 0.7 });
+
+    // Nose: a small forward-pointing wedge, not just a bump, so it reads
+    // as a nose in profile as well as head-on.
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.075, 5), skinMat);
+    nose.rotation.x = -Math.PI / 2;
+    nose.position.set(0, head.position.y - 0.01, -0.185);
     grp.add(nose);
 
-    // Simple hair cap covering the top/back/sides, leaving a gap open at
-    // the front (roughly a 120° wedge centered on -Z) so it doesn't cover
-    // the face. Dark brown, like the reference photo.
+    // Eyes + eyebrows, one pair mirrored left/right.
+    [-1, 1].forEach(function(side){
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.024, 8, 8), eyeMat);
+      eye.position.set(side * 0.07, head.position.y + 0.025, -0.175);
+      grp.add(eye);
+
+      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.014, 0.02), hairMat);
+      brow.position.set(side * 0.07, head.position.y + 0.06, -0.175);
+      grp.add(brow);
+
+      const ear = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), skinMat);
+      ear.scale.set(0.6, 1, 0.5);
+      ear.position.set(side * (headRadius * 1.06), head.position.y, 0.01);
+      grp.add(ear);
+    });
+
+    // Mouth: a thin flattened box just below the nose.
+    const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.018, 0.02), mouthMat);
+    mouth.position.set(0, head.position.y - 0.085, -0.18);
+    grp.add(mouth);
+
+    // Hair: a cap covering the top/back/sides, left open at the front so
+    // it doesn't cover the face, plus a short fringe over the forehead.
     const hair = new THREE.Mesh(
-      new THREE.SphereGeometry(headRadius * 1.05, 16, 12, -0.5, 4.2, 0, 2.05),
-      new THREE.MeshStandardMaterial({ color: 0x2b1d12, roughness: 0.9 })
+      new THREE.SphereGeometry(headRadius * 1.08, 16, 12, -0.5, 4.2, 0, 2.05),
+      hairMat
     );
     hair.position.copy(head.position);
     grp.add(hair);
+
+    const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.09, 0.14), hairMat);
+    fringe.position.set(0, head.position.y + 0.1, -0.11);
+    fringe.rotation.x = 0.25;
+    grp.add(fringe);
 
     // arms/legs pivot at their TOP (shoulder / hip) so rotating the mesh
     // swings the limb naturally, like a simple walk-cycle rig
