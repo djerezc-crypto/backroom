@@ -902,6 +902,12 @@
 
     levelNum.textContent = String(level);
     bannerEl.hidden = true;
+
+    // Restart the hunt for this level. clearLevel() (called above) wipes
+    // any timer left over from the previous level, so without this the
+    // monster would only ever spawn once, on level 1, and never again
+    // after advancing — which is exactly why it wasn't showing up on 2+.
+    scheduleMonsterSpawn();
   }
 
   function resolveWallCollisions(pos, radius){
@@ -1236,7 +1242,7 @@
       }
     }
     if (!best) { scheduleMonsterSpawn(); return; }
-    monsterState = { path: best.path, pathIndex: 1, speed: 2.95, repathTimer: 0 };
+    monsterState = { path: best.path, pathIndex: 1, speed: 3.6, repathTimer: 0 };
     monster.position.set(worldXG(best.cell.x), 0, worldZG(best.cell.y));
     monster.visible = true;
   }
@@ -1712,11 +1718,10 @@
     hud.hidden = false; crosshair.hidden = false; comms.hidden = false;
     touchControls.hidden = !isTouchDevice;
     currentLevel = 1;
-    buildMaze(currentLevel, gameSeed);
+    buildMaze(currentLevel, gameSeed); // also (re)starts the monster's spawn timer
     pushLog('sys', null, 'Eres el ' + THEMES[myRole].name + '. Busquen juntos la salida — y cuidado con los sustos.');
     requestLock();
     tryLockLandscape();
-    scheduleMonsterSpawn();
     sendAppearance();
   }
 
