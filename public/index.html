@@ -643,6 +643,7 @@
   let levelReached = false;
   let mazeCells = null;   // current level's cell grid, kept for the monster's pathfinding
   let worldXG = null, worldZG = null; // grid->world helpers for the current level (set in buildMaze)
+  let mySpawnPos = null;  // this player's spawn point in the current level, for respawning after a catch
 
   // Objects-to-find gate on the exit door.
   let items = [];              // [{ x, z, mesh, collected }]
@@ -958,6 +959,7 @@
     itemsCountEl.textContent = '0';
 
     const startSpawn = myRole === 'B' ? spawnB : spawnA;
+    mySpawnPos = startSpawn;
     yawObject.position.set(startSpawn.x, EYE_H, startSpawn.z);
     yawObject.rotation.set(0,0,0);
     pitchObject.rotation.set(0,0,0);
@@ -1440,6 +1442,16 @@
   function catchPlayer(){
     triggerScreamer();
     despawnMonster();
+    respawnPlayer();
+  }
+
+  // Sends the player back to their spawn point in the CURRENT level —
+  // "dying" doesn't lose progress on the level, it just resets position.
+  function respawnPlayer(){
+    if (!mySpawnPos) return;
+    yawObject.position.set(mySpawnPos.x, EYE_H, mySpawnPos.z);
+    yawObject.rotation.set(0, 0, 0);
+    pitchObject.rotation.set(0, 0, 0);
   }
 
   function triggerScreamer(){
@@ -1453,11 +1465,18 @@
       try{ screamerVideo.currentTime = 0; screamerVideo.play().catch(function(){}); }catch(e){}
     }
     screamerOverlay.classList.add('show');
+    // Duck the background music so only the scream is heard, then bring
+    // the music back once the jumpscare is over.
+    const wasMusicPlaying = !!(bgMusic && !bgMusic.paused);
+    if (bgMusic) bgMusic.pause();
     playCatchSound();
     if (navigator.vibrate){ try{ navigator.vibrate([70,40,120]); }catch(e){} }
     setTimeout(function(){
       screamerOverlay.classList.remove('show');
       if (useVideo) screamerVideo.pause();
+      if (wasMusicPlaying && bgMusic && gameState === 'playing'){
+        bgMusic.play().catch(function(){});
+      }
     }, useVideo ? 1400 : 550);
   }
 
