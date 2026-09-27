@@ -1121,27 +1121,56 @@
   function buildMonster(level){
     const grp = new THREE.Group();
     if (level >= 2){
-      // Level 2+: a floating golden bust — a sculpted head-and-shoulders
-      // in one solid bronze/gold tone, slowly spinning like a turntable,
-      // per the reference clip. No legs: it just floats toward you.
+      // Level 2+: a floating golden bust sculpted to resemble the
+      // reference clip — short hair, brow, wide nose, mustache, jaw,
+      // ears — in one solid bronze/gold tone. It doesn't spin; it turns
+      // to face you as it hunts, like the rest of the stalkers.
       grp.userData.style = 'bust';
-      const gold = new THREE.MeshStandardMaterial({ color: 0xc9a251, roughness: 0.5, metalness: 0.3 });
+      const gold = new THREE.MeshStandardMaterial({ color: 0xc9a251, roughness: 0.5, metalness: 0.25 });
+      const darkGold = new THREE.MeshStandardMaterial({ color: 0x8a6a34, roughness: 0.6, metalness: 0.2 });
+
       const skull = new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 14), gold);
-      skull.scale.set(1.05, 1.25, 1.0);
+      skull.scale.set(1.0, 1.15, 1.0);
       grp.add(skull);
-      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.12), gold);
-      brow.position.set(0, 0.08, -0.21);
+
+      // short hair cap + a bit of extra mass at the back of the head
+      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.27, 14, 12, 0, Math.PI*2, 0, 1.7), darkGold);
+      hair.position.y = 0.03;
+      grp.add(hair);
+
+      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.045, 0.1), darkGold);
+      brow.position.set(0, 0.075, -0.215);
       grp.add(brow);
-      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.13, 6), gold);
+
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.15, 6), gold);
       nose.rotation.x = -Math.PI/2;
-      nose.position.set(0, -0.02, -0.26);
+      nose.position.set(0, -0.025, -0.255);
       grp.add(nose);
-      const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, 0.2), gold);
-      jaw.position.set(0, -0.26, -0.05);
+
+      // mustache: a thin dark ridge just above the mouth
+      const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.05), darkGold);
+      mustache.position.set(0, -0.115, -0.235);
+      grp.add(mustache);
+
+      const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 0.03), darkGold);
+      mouth.position.set(0, -0.155, -0.24);
+      grp.add(mouth);
+
+      const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.2), gold);
+      jaw.position.set(0, -0.24, -0.04);
       grp.add(jaw);
-      const bust = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.42, 0.42, 14), gold);
-      bust.position.set(0, -0.5, 0);
+
+      [-1, 1].forEach(function(side){
+        const ear = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), gold);
+        ear.scale.set(0.6, 1, 0.5);
+        ear.position.set(side * 0.27, -0.03, 0);
+        grp.add(ear);
+      });
+
+      const bust = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.44, 0.46, 14), gold);
+      bust.position.set(0, -0.52, 0);
       grp.add(bust);
+
       const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2b2b });
       [-1, 1].forEach(function(side){
         const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
@@ -1244,13 +1273,12 @@
       } else {
         monster.position.x += (dx/dist) * step;
         monster.position.z += (dz/dist) * step;
-        if (monster.userData.style !== 'bust') monster.rotation.y = Math.atan2(-dx, -dz);
+        monster.rotation.y = Math.atan2(-dx, -dz);
       }
     }
     if (monster.userData.style === 'bust'){
-      // Floats at head height and just keeps spinning like the reference
-      // turntable clip, regardless of which way it's moving.
-      monster.rotation.y += delta * 2.4;
+      // Floats at head height, facing the way it's moving (set above) —
+      // no spinning, just a disembodied head hunting you down.
       monster.position.y = 1.62 + Math.sin(performance.now() * 0.004) * 0.08;
     } else {
       // A slight uneven bob so it doesn't glide like it's on rails.
