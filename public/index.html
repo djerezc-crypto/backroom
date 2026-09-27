@@ -1453,12 +1453,23 @@
       try{ screamerVideo.currentTime = 0; screamerVideo.play().catch(function(){}); }catch(e){}
     }
     screamerOverlay.classList.add('show');
-    playScreamSound();
+    playCatchSound();
     if (navigator.vibrate){ try{ navigator.vibrate([70,40,120]); }catch(e){} }
     setTimeout(function(){
       screamerOverlay.classList.remove('show');
       if (useVideo) screamerVideo.pause();
     }, useVideo ? 1400 : 550);
+  }
+
+  function playCatchSound(){
+    if (catchScream){
+      try{
+        catchScream.currentTime = 0;
+        catchScream.play().catch(function(){ playScreamSound(); });
+        return;
+      }catch(e){ /* fall through to the synthesized sting below */ }
+    }
+    playScreamSound();
   }
 
   function playScreamSound(){
@@ -1767,6 +1778,7 @@
      10. Background music (starts on user gesture)
   ============================================================ */
   let audioCtx = null, gainNode = null, bgMusic = null, bgMusicNode = null;
+  let catchScream = null, catchScreamNode = null;
   function initAudio(){
     if (!audioCtx){
       try{
@@ -1782,6 +1794,12 @@
         // slider controls it exactly like it controls the jumpscare sound.
         bgMusicNode = audioCtx.createMediaElementSource(bgMusic);
         bgMusicNode.connect(gainNode);
+
+        // The uploaded scream, played on getting caught (see triggerScreamer).
+        catchScream = new Audio('catch-scream.mp3');
+        catchScream.crossOrigin = 'anonymous';
+        catchScreamNode = audioCtx.createMediaElementSource(catchScream);
+        catchScreamNode.connect(gainNode);
       }catch(e){ /* audio unavailable, ignore */ }
     }
     if (audioCtx && audioCtx.state === 'suspended'){
