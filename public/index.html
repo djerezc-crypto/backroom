@@ -1,0 +1,1382 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Backrooms Together</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ink:#0e0d09;
+    --panel:#1c1912;
+    --panel-2:#26221a;
+    --line:#3a3427;
+    --text:#efe9d8;
+    --text-dim:#a89f89;
+    --amber:#e0a835;
+    --green:#6fae52;
+    --red:#c1443a;
+    --neutral-accent:#8fb3ad;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="light"]){ color-scheme: dark; }
+  }
+  :root[data-theme="light"]{ color-scheme: dark; }
+
+  *{ box-sizing:border-box; }
+  body{ background:var(--ink); overflow:hidden; height:100%; }
+  html{ height:100%; }
+
+  #app{
+    position:fixed; inset:0;
+    font-family:"IBM Plex Sans", system-ui, sans-serif;
+    color:var(--text);
+    background:var(--ink);
+  }
+
+  canvas#scene{ position:absolute; inset:0; width:100%; height:100%; display:block; outline:none; touch-action:none; }
+
+  /* ---------- touch controls (phones/tablets) ---------- */
+  #touchControls{ position:absolute; inset:0; z-index:12; pointer-events:none; touch-action:none; }
+  #joyBase{
+    position:absolute; left:22px; bottom:calc(22px + env(safe-area-inset-bottom,0px));
+    width:112px; height:112px; border-radius:50%;
+    background:rgba(239,233,216,0.08); border:2px solid rgba(239,233,216,0.35);
+    pointer-events:auto;
+  }
+  #joyKnob{
+    position:absolute; left:50%; top:50%; width:50px; height:50px; margin:-25px;
+    border-radius:50%; background:rgba(239,233,216,0.55);
+    transition:transform .05s linear;
+  }
+  .touch-btn{
+    position:absolute; pointer-events:auto;
+    display:flex; align-items:center; justify-content:center;
+    border-radius:50%; border:2px solid rgba(239,233,216,0.4);
+    background:rgba(14,13,9,0.55); color:var(--text);
+    font-family:"IBM Plex Mono",monospace; font-weight:600;
+    -webkit-tap-highlight-color:transparent; user-select:none;
+  }
+  #touchInteract{
+    right:24px; bottom:calc(30px + env(safe-area-inset-bottom,0px));
+    width:78px; height:78px; font-size:12px;
+  }
+  #touchInteract.active{ background:rgba(224,168,53,0.5); }
+  #touchChat{
+    right:34px; bottom:calc(120px + env(safe-area-inset-bottom,0px));
+    width:52px; height:52px; font-size:20px;
+  }
+  #touchMenu{
+    right:16px; top:calc(16px + env(safe-area-inset-top,0px));
+    width:44px; height:44px; font-size:18px;
+  }
+
+  /* ---------- shared overlay chrome ---------- */
+  .overlay{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at center, rgba(20,17,10,0.72) 0%, rgba(8,7,4,0.92) 100%);
+    padding:24px;
+    z-index:20;
+  }
+  .card{
+    width:min(560px, 100%);
+    max-height:calc(100% - 24px);
+    overflow-y:auto;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:28px 28px 24px;
+    box-shadow:0 20px 60px rgba(0,0,0,0.55);
+  }
+  h1.title{
+    font-family:"Oswald", sans-serif;
+    font-weight:700;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    font-size:clamp(22px,5vw,30px);
+    text-wrap:balance;
+    margin:0 0 4px;
+    color:var(--text);
+  }
+  .subtitle{
+    font-family:"IBM Plex Mono", monospace;
+    font-size:12px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--accent, var(--neutral-accent));
+    margin:0 0 20px;
+  }
+  .card p{ line-height:1.55; color:var(--text-dim); font-size:14px; margin:0 0 14px; }
+  .card p strong{ color:var(--text); font-weight:600; }
+
+  .controls-grid{
+    display:grid; grid-template-columns:auto 1fr; gap:8px 14px;
+    font-family:"IBM Plex Mono", monospace; font-size:12.5px;
+    margin:0 0 20px; padding:14px 16px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:4px;
+  }
+  .controls-grid kbd{
+    background:var(--ink); border:1px solid var(--line); border-radius:3px;
+    padding:2px 7px; color:var(--text); font-size:11.5px; white-space:nowrap;
+  }
+  .controls-grid span{ color:var(--text-dim); align-self:center; }
+
+  .row{ display:flex; gap:10px; flex-wrap:wrap; }
+
+  button.btn{
+    font-family:"IBM Plex Sans", sans-serif;
+    font-weight:600; font-size:14px;
+    border:1px solid var(--line);
+    background:var(--panel-2);
+    color:var(--text);
+    padding:11px 18px;
+    border-radius:4px;
+    cursor:pointer;
+    transition:background .15s, border-color .15s, transform .1s;
+  }
+  button.btn:hover{ background:#332c1f; border-color:var(--accent, var(--neutral-accent)); }
+  button.btn:active{ transform:scale(0.98); }
+  button.btn.primary{
+    background:var(--accent, var(--amber));
+    color:#171307;
+    border-color:var(--accent, var(--amber));
+  }
+  button.btn.primary:hover{ filter:brightness(1.08); }
+  button.btn.small{ padding:7px 12px; font-size:12.5px; }
+  button.btn:focus-visible{ outline:2px solid var(--accent, var(--neutral-accent)); outline-offset:2px; }
+
+  .link-row{
+    display:flex; gap:8px; align-items:center;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:4px;
+    padding:8px 8px 8px 12px; margin-bottom:18px;
+  }
+  .link-row input{
+    flex:1; min-width:0; background:transparent; border:none; color:var(--text-dim);
+    font-family:"IBM Plex Mono", monospace; font-size:12px;
+  }
+  .link-row input:focus{ outline:none; }
+
+  .status-line{
+    display:flex; align-items:center; gap:8px;
+    font-family:"IBM Plex Mono", monospace; font-size:12.5px; color:var(--text-dim);
+    margin-bottom:18px;
+  }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--red); flex:none; }
+  .dot.on{ background:var(--green); }
+  .dot.pulse{ animation:pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+  [hidden]{ display:none !important; }
+
+  /* ---------- HUD ---------- */
+  #hud{
+    position:absolute; top:0; left:0; right:0;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 18px calc(14px + env(safe-area-inset-top,0px));
+    padding-top:calc(14px + env(safe-area-inset-top,0px));
+    pointer-events:none;
+    z-index:10;
+    font-family:"IBM Plex Mono", monospace;
+    background:linear-gradient(to bottom, rgba(8,7,4,0.55), transparent);
+  }
+  #hud .hud-badge{
+    display:flex; align-items:center; gap:8px;
+    background:rgba(14,13,9,0.55);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:6px 12px;
+    font-size:12px;
+    letter-spacing:0.05em;
+  }
+  #hud .role-chip{
+    width:9px; height:9px; border-radius:50%;
+    background:var(--accent, var(--neutral-accent));
+  }
+  #hud .level-chip{ color:var(--text-dim); }
+  #hud .level-chip b{ color:var(--text); }
+
+  /* crosshair */
+  #crosshair{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    width:6px; height:6px; border-radius:50%;
+    background:rgba(239,233,216,0.85);
+    box-shadow:0 0 0 1px rgba(0,0,0,0.4);
+    pointer-events:none; z-index:9;
+  }
+  #prompt{
+    position:absolute; bottom:120px; left:50%; transform:translateX(-50%);
+    font-family:"IBM Plex Mono", monospace; font-size:12.5px;
+    background:rgba(14,13,9,0.72); border:1px solid var(--line);
+    padding:6px 12px; border-radius:4px; color:var(--text);
+    pointer-events:none; z-index:9; letter-spacing:.03em;
+  }
+
+  /* ---------- comms panel ---------- */
+  #comms{
+    position:absolute; left:14px; bottom:14px;
+    width:300px; max-width:calc(100vw - 28px);
+    z-index:11;
+    font-family:"IBM Plex Sans", sans-serif;
+    pointer-events:none;
+  }
+  #comms-log{
+    display:flex; flex-direction:column; gap:5px;
+    max-height:150px; overflow:hidden;
+    margin-bottom:6px;
+  }
+  #comms-log .msg{
+    background:rgba(14,13,9,0.62);
+    border-left:3px solid var(--neutral-accent);
+    padding:5px 9px; border-radius:2px;
+    font-size:12.5px; line-height:1.4;
+    color:var(--text);
+    animation:fadein .15s ease-out;
+  }
+  #comms-log .msg.me{ border-left-color:var(--accent, var(--amber)); }
+  #comms-log .msg.sys{ border-left-color:var(--text-dim); color:var(--text-dim); font-style:italic; }
+  #comms-log .msg b{ font-family:"IBM Plex Mono", monospace; font-size:11px; letter-spacing:.04em; margin-right:6px; }
+  @keyframes fadein{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+
+  #comms-hint{
+    font-family:"IBM Plex Mono", monospace; font-size:11px; color:var(--text-dim);
+    background:rgba(14,13,9,0.5); display:inline-block; padding:3px 8px; border-radius:3px;
+  }
+
+  #comms-bar{
+    display:flex; gap:6px; pointer-events:auto;
+  }
+  #comms-bar input{
+    flex:1; min-width:0;
+    background:rgba(10,9,6,0.9); border:1px solid var(--accent, var(--neutral-accent));
+    color:var(--text); font-family:"IBM Plex Sans"; font-size:13px;
+    padding:8px 10px; border-radius:3px;
+  }
+  #comms-bar input:focus{ outline:none; }
+
+  /* ---------- pause menu extras ---------- */
+  .field{ margin-bottom:16px; }
+  .field label{
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:12.5px; color:var(--text-dim); margin-bottom:6px;
+    font-family:"IBM Plex Mono", monospace; letter-spacing:.03em;
+  }
+  .field label span.val{ color:var(--text); }
+  input[type=range]{
+    width:100%; accent-color:var(--accent, var(--amber));
+  }
+
+  /* ---------- level banner ---------- */
+  #banner{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:6px;
+    background:rgba(8,7,4,0.75);
+    z-index:15;
+  }
+  #banner .b-title{
+    font-family:"Oswald"; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+    font-size:clamp(24px,6vw,40px); color:var(--text); text-wrap:balance; text-align:center;
+  }
+  #banner .b-sub{
+    font-family:"IBM Plex Mono"; font-size:13px; color:var(--accent, var(--neutral-accent)); letter-spacing:.05em;
+  }
+
+  @media (max-width:480px){
+    #comms{ width:calc(100vw - 28px); }
+    .card{ padding:20px 18px 18px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="scene"></canvas>
+
+  <div id="hud" hidden>
+    <div class="hud-badge">
+      <span class="role-chip" id="roleChip"></span>
+      <span id="roleLabel">—</span>
+    </div>
+    <div class="hud-badge level-chip">LEVEL <b id="levelNum">1</b> / 3</div>
+    <div class="hud-badge">
+      <span class="dot" id="peerDot"></span>
+      <span id="peerLabel">solo</span>
+    </div>
+  </div>
+
+  <div id="crosshair" hidden></div>
+  <div id="prompt" hidden></div>
+
+  <div id="touchControls" hidden>
+    <div id="joyBase"><div id="joyKnob"></div></div>
+    <button id="touchInteract" class="touch-btn">USAR</button>
+    <button id="touchChat" class="touch-btn">💬</button>
+    <button id="touchMenu" class="touch-btn">☰</button>
+  </div>
+
+  <div id="comms" hidden>
+    <div id="comms-log"></div>
+    <div id="comms-hint">Enter — hablar con tu compañero</div>
+    <div id="comms-bar" hidden>
+      <input id="commsInput" maxlength="140" placeholder="Escribe y presiona Enter…" autocomplete="off">
+      <button id="commsSendBtn" class="touch-btn" style="position:static; width:auto; height:auto; border-radius:3px; padding:8px 14px; font-size:12px;">Enviar</button>
+    </div>
+  </div>
+
+  <div id="banner" hidden>
+    <div class="b-title" id="bannerTitle">Nivel completo</div>
+    <div class="b-sub" id="bannerSub">Preparando la siguiente sala…</div>
+  </div>
+
+  <!-- START SCREEN -->
+  <div class="overlay" id="screen-start">
+    <div class="card">
+      <h1 class="title">Backrooms: Together</h1>
+      <p class="subtitle">Escape cooperativo en primera persona</p>
+      <p>Tú y tu compañero quedan atrapados en <strong>dos backrooms distintos</strong>, uno frente al otro sin poder verse. Cada sala tiene un mecanismo que solo la otra persona puede leer. La única forma de avanzar es <strong>contarse lo que ven</strong> por el chat del juego.</p>
+
+      <div class="controls-grid">
+        <kbd>W A S D</kbd><span>Moverse</span>
+        <kbd>Trackpad / Mouse</kbd><span>Mirar alrededor</span>
+        <kbd>Shift</kbd><span>Correr</span>
+        <kbd>Click</kbd><span>Usar / presionar</span>
+        <kbd>Enter</kbd><span>Abrir chat con tu compañero</span>
+        <kbd>Esc</kbd><span>Pausa y opciones</span>
+      </div>
+
+      <p style="margin-bottom:8px;"><strong>Invita a tu compañero:</strong> mándale este mismo link (desde su celular o su PC). No necesita cuenta ni instalar nada — con abrirlo en su navegador se conecta directo a tu partida.</p>
+      <div class="link-row">
+        <input id="linkInput" readonly>
+        <button class="btn small" id="copyLinkBtn">Copiar</button>
+      </div>
+
+      <div class="row">
+        <button class="btn primary" id="enterBtn">Entrar a las Backrooms</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WAITING / SYNC SCREEN -->
+  <div class="overlay" id="screen-wait" hidden>
+    <div class="card" style="text-align:center;">
+      <h1 class="title" id="waitTitle">Esperando a tu compañero…</h1>
+      <p class="subtitle" id="waitSub">Sala compartida</p>
+      <div class="status-line" style="justify-content:center;">
+        <span class="dot pulse" id="waitDot"></span>
+        <span id="waitText">Comparte el link para que se una</span>
+      </div>
+      <div class="link-row">
+        <input id="linkInput2" readonly>
+        <button class="btn small" id="copyLinkBtn2">Copiar</button>
+      </div>
+      <button class="btn primary" id="readyBtn" hidden>Comenzar a jugar</button>
+      <div style="margin-top:14px;">
+        <button class="btn small" id="soloBtn">Jugar solo (sin compañero)</button>
+      </div>
+      <p id="debugLine" style="margin-top:16px; font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--text-dim); opacity:0.7;"></p>
+    </div>
+  </div>
+
+  <!-- PAUSE MENU -->
+  <div class="overlay" id="screen-pause" hidden>
+    <div class="card">
+      <h1 class="title">Pausa</h1>
+      <p class="subtitle" id="pauseSub">Nivel 1 de 3</p>
+
+      <div class="field">
+        <label>Volumen <span class="val" id="volVal">40%</span></label>
+        <input type="range" id="volSlider" min="0" max="100" value="40">
+      </div>
+      <div class="field">
+        <label>Sensibilidad del mouse / trackpad <span class="val" id="sensVal">1.0x</span></label>
+        <input type="range" id="sensSlider" min="30" max="300" value="100">
+      </div>
+
+      <div class="row">
+        <button class="btn primary" id="resumeBtn">Reanudar</button>
+        <button class="btn" id="exitBtn">Salir del juego</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- WIN SCREEN -->
+  <div class="overlay" id="screen-win" hidden>
+    <div class="card" style="text-align:center;">
+      <h1 class="title">Escaparon juntos</h1>
+      <p class="subtitle">Fin del recorrido</p>
+      <p>Las tres salas quedaron atrás gracias a que se ayudaron mutuamente. Ninguno de los dos podría haber salido solo.</p>
+      <button class="btn primary" id="restartBtn">Jugar de nuevo</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  /* ============================================================
+     0. Small utilities
+  ============================================================ */
+  function mulberry32(a){
+    return function(){
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      let t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function rngFor(seed, level, who){
+    const s = (seed + level * 10007 + (who === 'A' ? 7919 : 104729)) >>> 0;
+    return mulberry32(s);
+  }
+  function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+
+  function loadNum(key, fallback){
+    try{ const v = parseFloat(localStorage.getItem(key)); return isNaN(v) ? fallback : v; }
+    catch(e){ return fallback; }
+  }
+  function saveNum(key, v){ try{ localStorage.setItem(key, String(v)); }catch(e){} }
+
+  function makeCanvasTexture(draw, w, h){
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    draw(ctx, w, h);
+    const tex = new THREE.CanvasTexture(c);
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  function signTexture(title, value, accent){
+    return makeCanvasTexture(function(ctx, w, h){
+      ctx.fillStyle = '#161209'; ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = accent; ctx.lineWidth = 10; ctx.strokeRect(6, 6, w - 12, h - 12);
+      ctx.fillStyle = '#d8d0ba';
+      ctx.font = '30px "IBM Plex Mono", monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(title, w / 2, h * 0.32);
+      ctx.fillStyle = accent;
+      ctx.font = 'bold 58px "IBM Plex Mono", monospace';
+      ctx.fillText(value, w / 2, h * 0.68);
+    }, 512, 256);
+  }
+
+  function labelTexture(label, bg, fg){
+    const len = label.length;
+    const size = len <= 2 ? 84 : len <= 4 ? 54 : len <= 6 ? 40 : 28;
+    return makeCanvasTexture(function(ctx, w, h){
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 10; ctx.strokeRect(5, 5, w - 10, h - 10);
+      ctx.fillStyle = fg;
+      ctx.font = 'bold ' + size + 'px "IBM Plex Mono", monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, w / 2, h / 2 + 6);
+    }, 160, 160);
+  }
+
+  /* ============================================================
+     1. DOM refs
+  ============================================================ */
+  const $ = (id) => document.getElementById(id);
+  const canvas = $('scene');
+  const hud = $('hud'), roleChip = $('roleChip'), roleLabel = $('roleLabel'),
+        levelNum = $('levelNum'), peerDot = $('peerDot'), peerLabel = $('peerLabel');
+  const crosshair = $('crosshair'), promptEl = $('prompt');
+  const touchControls = $('touchControls'), joyBase = $('joyBase'), joyKnob = $('joyKnob'),
+        touchInteractBtn = $('touchInteract'), touchChatBtn = $('touchChat'), touchMenuBtn = $('touchMenu');
+  const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  const comms = $('comms'), commsLog = $('comms-log'), commsBar = $('comms-bar'), commsInput = $('commsInput');
+  const bannerEl = $('banner'), bannerTitle = $('bannerTitle'), bannerSub = $('bannerSub');
+
+  const screenStart = $('screen-start'), screenWait = $('screen-wait'),
+        screenPause = $('screen-pause'), screenWin = $('screen-win');
+
+  const linkInput = $('linkInput'), linkInput2 = $('linkInput2');
+  linkInput.value = location.href; linkInput2.value = location.href;
+  function wireCopy(btn, input){
+    btn.addEventListener('click', function(){
+      const done = () => { btn.textContent = '¡Copiado!'; setTimeout(() => btn.textContent = 'Copiar', 1400); };
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(input.value).then(done).catch(function(){
+          input.select(); done();
+        });
+      } else { input.select(); done(); }
+    });
+  }
+  wireCopy($('copyLinkBtn'), linkInput);
+  wireCopy($('copyLinkBtn2'), linkInput2);
+
+  /* ============================================================
+     2. Theme / level data
+  ============================================================ */
+  const THEMES = {
+    A: { name:'Sala Amarilla', wall:0xcdbb3f, floor:0x8f7f2f, ceil:0xd8c85a, fog:0x8f7f2f, accent:'#e0a835', accentCss:'--amber' },
+    B: { name:'Sala Verde',    wall:0x22331f, floor:0x141d13, ceil:0x2c3d24, fog:0x0d130c, accent:'#6fae52', accentCss:'--green' }
+  };
+
+  function getPuzzleSpec(seed, level, who){
+    const rng = rngFor(seed, level, who);
+    if (level === 1){
+      if (who === 'A'){
+        const opts = [['ROJO', '#c1443a'], ['AZUL', '#3a6ac1'], ['VERDE', '#3ac16a'], ['AMARILLO', '#c1b23a']];
+        const idx = Math.floor(rng() * opts.length);
+        return { type:'pick', labels:opts.map(o=>o[0]), colors:opts.map(o=>o[1]), answer:idx,
+          clueTitle:'JUGADOR A NECESITA:', clueValue:opts[idx][0], apparatusName:'Botones de color' };
+      } else {
+        const digits = [Math.floor(rng()*10), Math.floor(rng()*10), Math.floor(rng()*10)];
+        return { type:'sequence', poolSize:10, labels:Array.from({length:10},(_,i)=>String(i)), answer:digits,
+          clueTitle:'JUGADOR B NECESITA CÓDIGO:', clueValue:digits.join('-'), apparatusName:'Teclado numérico' };
+      }
+    }
+    if (level === 2){
+      if (who === 'A'){
+        const pool = [1,2,3,4,5,6]; const seq = [];
+        for (let i=0;i<3;i++){ const j = Math.floor(rng()*pool.length); seq.push(pool.splice(j,1)[0]); }
+        return { type:'sequence', poolSize:6, labels:['1','2','3','4','5','6'], answer:seq,
+          clueTitle:'JUGADOR A NECESITA ORDEN:', clueValue:seq.join('-'), apparatusName:'Válvulas numeradas' };
+      } else {
+        const pattern = [rng()<0.5, rng()<0.5, rng()<0.5];
+        return { type:'toggle', count:3, answer:pattern,
+          clueTitle:'JUGADOR B NECESITA PATRÓN:', clueValue: pattern.map(p=>p?'ON':'OFF').join('-'), apparatusName:'Interruptores' };
+      }
+    }
+    // level 3
+    if (who === 'A'){
+      const opts = [['▲','#c1443a'],['●','#3a6ac1'],['■','#3ac16a'],['◆','#c1b23a']];
+      const idx = Math.floor(rng()*opts.length);
+      return { type:'pick', labels:opts.map(o=>o[0]), colors:opts.map(o=>o[1]), answer:idx,
+        clueTitle:'JUGADOR A NECESITA FUSIBLE:', clueValue:opts[idx][0], apparatusName:'Caja de fusibles' };
+    } else {
+      const opts = ['BAJO','MEDIO','ALTO'];
+      const idx = Math.floor(rng()*3);
+      return { type:'pick', labels:opts, colors:['#6fae52','#c1b23a','#c1443a'], answer:idx,
+        clueTitle:'JUGADOR B NECESITA DIAL:', clueValue:opts[idx], apparatusName:'Dial eléctrico' };
+    }
+  }
+
+  const ROOM = { w: 8, d: 14, h: 5 };
+  const SPAWN_Z = ROOM.d/2 - 1.4;
+  const EYE_H = 1.65;
+
+  /* ============================================================
+     3. Three.js persistent rig
+  ============================================================ */
+  const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias:true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 100);
+  const pitchObject = new THREE.Object3D(); pitchObject.add(camera);
+  const yawObject = new THREE.Object3D(); yawObject.add(pitchObject);
+  scene.add(yawObject);
+
+  function resize(){
+    const w = innerWidth, h = innerHeight;
+    renderer.setSize(w, h);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  let levelGroup = null;
+  let interactables = [];
+  let doorMesh = null;
+  let ceilLight = null;
+  let flickerSeed = Math.random()*100;
+
+  function clearLevel(){
+    if (levelGroup){ scene.remove(levelGroup); }
+    levelGroup = new THREE.Group();
+    scene.add(levelGroup);
+    interactables = [];
+  }
+
+  function buildShell(theme){
+    const g = new THREE.Group();
+    const wallMat = new THREE.MeshStandardMaterial({ color: theme.wall, roughness:0.95 });
+    const floorMat = new THREE.MeshStandardMaterial({ color: theme.floor, roughness:1 });
+    const ceilMat = new THREE.MeshStandardMaterial({ color: theme.ceil, roughness:1, emissive: theme.ceil, emissiveIntensity:0.15 });
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.d), floorMat);
+    floor.rotation.x = -Math.PI/2; g.add(floor);
+
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.d), ceilMat);
+    ceil.rotation.x = Math.PI/2; ceil.position.y = ROOM.h; g.add(ceil);
+
+    const backWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.h), wallMat);
+    backWall.position.set(0, ROOM.h/2, -ROOM.d/2); g.add(backWall);
+
+    const frontWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.w, ROOM.h), wallMat);
+    frontWall.position.set(0, ROOM.h/2, ROOM.d/2); frontWall.rotation.y = Math.PI; g.add(frontWall);
+
+    const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.d, ROOM.h), wallMat);
+    leftWall.position.set(-ROOM.w/2, ROOM.h/2, 0); leftWall.rotation.y = Math.PI/2; g.add(leftWall);
+
+    const rightWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM.d, ROOM.h), wallMat);
+    rightWall.position.set(ROOM.w/2, ROOM.h/2, 0); rightWall.rotation.y = -Math.PI/2; g.add(rightWall);
+
+    // fluorescent strip
+    const strip = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.2, ROOM.d*0.7),
+      new THREE.MeshBasicMaterial({ color: 0xfff6d8 })
+    );
+    strip.rotation.x = Math.PI/2; strip.position.y = ROOM.h - 0.03;
+    g.add(strip);
+
+    ceilLight = new THREE.PointLight(0xfff2cf, 1.1, ROOM.d*1.3, 2);
+    ceilLight.position.set(0, ROOM.h - 0.4, 0);
+    g.add(ceilLight);
+
+    const hemi = new THREE.HemisphereLight(theme.ceil, theme.floor, 0.55);
+    g.add(hemi);
+
+    return g;
+  }
+
+  function makeButton(label, color, w, h){
+    const grp = new THREE.Group();
+    const box = new THREE.Mesh(
+      new THREE.BoxGeometry(w||0.85, h||0.85, 0.12),
+      new THREE.MeshStandardMaterial({ color: color, roughness:0.5, emissive: color, emissiveIntensity:0.15 })
+    );
+    grp.add(box);
+    const face = new THREE.Mesh(
+      new THREE.PlaneGeometry((w||0.85)*0.8, (h||0.85)*0.8),
+      new THREE.MeshBasicMaterial({ map: labelTexture(label, '#000000', '#ffffff'), transparent:true })
+    );
+    face.position.z = 0.065;
+    grp.add(face);
+    grp.userData.box = box;
+    grp.userData.baseColor = color;
+    return grp;
+  }
+
+  function setButtonState(grp, state){
+    // state: 'idle' | 'good' | 'bad'
+    const c = state === 'good' ? 0x3ac16a : state === 'bad' ? 0xc1443a : grp.userData.baseColor;
+    grp.userData.box.material.color.setHex(typeof c === 'string' ? parseInt(c.replace('#','0x')) : c);
+    grp.userData.box.material.emissive.setHex(typeof c === 'string' ? parseInt(c.replace('#','0x')) : c);
+  }
+
+  function makeDoor(theme){
+    const grp = new THREE.Group();
+    const slab = new THREE.Mesh(
+      new THREE.BoxGeometry(2.2, 3.4, 0.2),
+      new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness:0.7, metalness:0.2 })
+    );
+    slab.position.y = 1.7;
+    grp.add(slab);
+    const lamp = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.5, 0.15),
+      new THREE.MeshBasicMaterial({ color: 0xc1443a })
+    );
+    lamp.position.set(0, 3.15, 0.11);
+    grp.add(lamp);
+    grp.position.set(0, 0, -ROOM.d/2 + 0.15);
+    grp.userData.slab = slab;
+    grp.userData.lamp = lamp;
+    grp.userData.open = false;
+    return grp;
+  }
+
+  function openDoor(door){
+    if (door.userData.open) return;
+    door.userData.open = true;
+    door.userData.lamp.material.color.setHex(0x6fae52);
+    const start = performance.now();
+    (function anim(){
+      const t = clamp((performance.now() - start) / 900, 0, 1);
+      door.userData.slab.position.y = 1.7 + t * 3.6;
+      if (t < 1) requestAnimationFrame(anim);
+    })();
+  }
+
+  /* ============================================================
+     4. Level assembly
+  ============================================================ */
+  let currentLevel = 1;
+  let myRole = null;
+  let soloMode = false;
+  let gameSeed = Math.floor(Math.random()*1e9); // overwritten by the server's 'welcome' message once connected
+  let levelState = null; // {mineSolved, partnerSolved}
+  let sequenceProgress = [];
+  let toggleState = [];
+
+  function buildLevel(level, role, seed){
+    clearLevel();
+    const theme = THEMES[role];
+    scene.fog = new THREE.Fog(theme.fog, 4, 17);
+    scene.background = new THREE.Color(theme.fog);
+    levelGroup.add(buildShell(theme));
+
+    doorMesh = makeDoor(theme);
+    levelGroup.add(doorMesh);
+
+    const mySpec = getPuzzleSpec(seed, level, role);
+    const otherRole = role === 'A' ? 'B' : 'A';
+    const otherSpec = getPuzzleSpec(seed, level, otherRole);
+
+    // clue sign for the OTHER role's puzzle, mounted on the RIGHT wall
+    const sign = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.7, 0.9),
+      new THREE.MeshBasicMaterial({ map: signTexture(otherSpec.clueTitle, otherSpec.clueValue, theme.accent) })
+    );
+    sign.position.set(ROOM.w/2 - 0.05, 1.7, -1.5);
+    sign.rotation.y = -Math.PI/2;
+    levelGroup.add(sign);
+
+    // own apparatus on LEFT wall
+    sequenceProgress = [];
+    toggleState = mySpec.type === 'toggle' ? new Array(mySpec.count).fill(false) : [];
+    const apparatusGroup = new THREE.Group();
+
+    if (mySpec.type === 'pick'){
+      const n = mySpec.labels.length;
+      for (let i=0;i<n;i++){
+        const btn = makeButton(mySpec.labels[i], mySpec.colors[i], 0.9, 0.9);
+        btn.position.set(0, 1.9, -3 + i*1.15);
+        apparatusGroup.add(btn);
+        btn.userData.interactable = true;
+        btn.userData.onClick = (function(idx, g){
+          return function(){
+            if (levelState.mineSolved) return;
+            if (idx === mySpec.answer){
+              setButtonState(g, 'good');
+              solveMine();
+            } else {
+              flashBad(g);
+            }
+          };
+        })(i, btn);
+        interactables.push(btn);
+      }
+    } else if (mySpec.type === 'sequence'){
+      const n = mySpec.poolSize;
+      const cols = n <= 6 ? n : Math.ceil(n/2);
+      for (let i=0;i<n;i++){
+        const label = mySpec.labels[i];
+        const btn = makeButton(label, 0x555045, 0.62, 0.62);
+        const row = Math.floor(i / cols), col = i % cols;
+        const totalCols = Math.min(n, cols);
+        const startZ = -3 - (totalCols-1)*0.36;
+        btn.position.set(0, 2.15 - row*0.72, startZ + col*0.72);
+        apparatusGroup.add(btn);
+        btn.userData.interactable = true;
+        btn.userData.onClick = (function(idx){
+          return function(){
+            if (levelState.mineSolved) return;
+            sequenceProgress.push(idx);
+            setButtonState(btn, 'idle');
+            if (sequenceProgress.length >= mySpec.answer.length){
+              const ok = sequenceProgress.every(function(v,k){ return v === mySpec.answer[k]; });
+              if (ok){ solveMine(); apparatusGroup.children.forEach(function(b){ setButtonState(b,'good'); }); }
+              else {
+                apparatusGroup.children.forEach(function(b){ setButtonState(b,'bad'); });
+                setTimeout(function(){ apparatusGroup.children.forEach(function(b){ setButtonState(b,'idle'); }); }, 500);
+                sequenceProgress = [];
+              }
+            }
+          };
+        })(i);
+        interactables.push(btn);
+      }
+    } else if (mySpec.type === 'toggle'){
+      for (let i=0;i<mySpec.count;i++){
+        const btn = makeButton('OFF', 0x555045, 0.9, 0.55);
+        btn.position.set(0, 2.0, -2.4 + i*1.2);
+        apparatusGroup.add(btn);
+        btn.userData.interactable = true;
+        btn.userData.labelMesh = btn.children[1];
+        btn.userData.onClick = (function(idx, group){
+          return function(){
+            if (levelState.mineSolved) return;
+            toggleState[idx] = !toggleState[idx];
+            group.userData.box.material.color.setHex(toggleState[idx] ? 0x3ac16a : 0x555045);
+            group.userData.box.material.emissive.setHex(toggleState[idx] ? 0x3ac16a : 0x000000);
+          };
+        })(i, btn);
+        interactables.push(btn);
+      }
+      // confirm button
+      const confirmBtn = makeButton('OK', 0x3a6ac1, 0.7, 0.7);
+      confirmBtn.position.set(0, 2.0, -2.4 + mySpec.count*1.2 + 0.4);
+      apparatusGroup.add(confirmBtn);
+      confirmBtn.userData.interactable = true;
+      confirmBtn.userData.onClick = function(){
+        if (levelState.mineSolved) return;
+        const ok = toggleState.every(function(v,k){ return v === mySpec.answer[k]; });
+        if (ok){ solveMine(); setButtonState(confirmBtn, 'good'); }
+        else { flashBad(confirmBtn); }
+      };
+      interactables.push(confirmBtn);
+    }
+
+    // rotating the whole group (identity-oriented children) makes every
+    // button face +x, i.e. into the room from the left wall
+    apparatusGroup.rotation.y = Math.PI/2;
+    apparatusGroup.position.set(-ROOM.w/2 + 0.06, 0, 0);
+    levelGroup.add(apparatusGroup);
+
+    // apparatus name plate above it
+    const plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.6, 0.35),
+      new THREE.MeshBasicMaterial({ map: labelTexture(mySpec.apparatusName.toUpperCase(), '#161209', theme.accent) })
+    );
+    plate.position.set(-ROOM.w/2 + 0.06, 3.1, -2);
+    plate.rotation.y = Math.PI/2;
+    levelGroup.add(plate);
+
+    levelState = { mineSolved:false, partnerSolved:false };
+
+    yawObject.position.set(0, EYE_H, SPAWN_Z);
+    yawObject.rotation.set(0,0,0);
+    pitchObject.rotation.set(0,0,0);
+
+    levelNum.textContent = String(level);
+    bannerEl.hidden = true;
+  }
+
+  function flashBad(grp){
+    setButtonState(grp, 'bad');
+    setTimeout(function(){ setButtonState(grp, 'idle'); }, 450);
+  }
+
+  function solveMine(){
+    if (levelState.mineSolved) return;
+    levelState.mineSolved = true;
+    sendGameEvent('solved', { level: currentLevel, role: myRole });
+    pushLog('sys', null, 'Resolviste tu mecanismo. Se abrió la puerta de tu compañero.');
+    checkLevelComplete();
+  }
+
+  function onPartnerSolved(level){
+    if (level !== currentLevel) return;
+    levelState.partnerSolved = true;
+    if (doorMesh) openDoor(doorMesh);
+    pushLog('sys', null, 'Tu compañero resolvió su mecanismo. ¡Tu puerta se abrió!');
+    checkLevelComplete();
+  }
+
+  function checkLevelComplete(){
+    if ((levelState.mineSolved && levelState.partnerSolved) || (soloMode && levelState.mineSolved)){
+      advanceLevel();
+    }
+  }
+
+  function advanceLevel(){
+    bannerTitle.textContent = currentLevel < 3 ? 'Sala superada' : '¡Escaparon!';
+    bannerSub.textContent = currentLevel < 3 ? 'Avanzando a la siguiente sala…' : '';
+    bannerEl.hidden = false;
+    exitPointerLockSafely();
+    setTimeout(function(){
+      if (currentLevel >= 3){ showWin(); return; }
+      currentLevel += 1;
+      buildLevel(currentLevel, myRole, gameSeed);
+      bannerEl.hidden = true;
+      requestLock();
+    }, 2200);
+  }
+
+  function showWin(){
+    gameState = 'win';
+    screenWin.hidden = false;
+    hud.hidden = true; crosshair.hidden = true; promptEl.hidden = true; comms.hidden = true;
+    touchControls.hidden = true;
+  }
+
+  /* ============================================================
+     5. Movement + look
+  ============================================================ */
+  const keys = Object.create(null);
+  let chatOpen = false;
+  let suppressUnlockPause = false;
+  let sensitivity = loadNum('bt_sens', 1.0);
+  let volume = loadNum('bt_vol', 40);
+
+  function isRigActive(){
+    return gameState === 'playing' && (isTouchDevice || document.pointerLockElement === canvas);
+  }
+
+  function requestLock(){
+    if (!isTouchDevice && canvas.requestPointerLock) canvas.requestPointerLock();
+  }
+  function exitPointerLockSafely(){
+    suppressUnlockPause = true;
+    if (document.exitPointerLock) document.exitPointerLock();
+    setTimeout(function(){ suppressUnlockPause = false; }, 50);
+  }
+
+  document.addEventListener('pointerlockchange', function(){
+    const locked = document.pointerLockElement === canvas;
+    if (!locked && !suppressUnlockPause && gameState === 'playing' && !chatOpen){
+      pauseGame();
+    }
+  });
+
+  document.addEventListener('mousemove', function(e){
+    if (document.pointerLockElement !== canvas) return;
+    const sens = 0.0022 * sensitivity;
+    yawObject.rotation.y -= e.movementX * sens;
+    pitchObject.rotation.x = clamp(pitchObject.rotation.x - e.movementY * sens, -1.35, 1.35);
+  });
+
+  window.addEventListener('keydown', function(e){
+    if (document.activeElement === commsInput) return;
+    keys[e.key.toLowerCase()] = true;
+    if (e.key === 'Escape' && gameState === 'playing' && !chatOpen){ pauseGame(); }
+    else if (e.key === 'Escape' && gameState === 'paused'){ resumeGame(); }
+    if ((e.key === 'Enter' || e.key.toLowerCase()==='t') && gameState === 'playing' && !chatOpen){
+      e.preventDefault(); openChat();
+    }
+  });
+  window.addEventListener('keyup', function(e){ keys[e.key.toLowerCase()] = false; });
+
+  canvas.addEventListener('click', function(){
+    if (gameState === 'playing' && document.pointerLockElement !== canvas && !chatOpen){
+      requestLock();
+    }
+  });
+
+  canvas.addEventListener('mousedown', function(e){
+    if (e.button !== 0) return;
+    if (document.pointerLockElement !== canvas) return;
+    if (gameState !== 'playing') return;
+    tryInteract();
+  });
+
+  /* ---- touch controls: virtual joystick (move) + drag-to-look ---- */
+  let joyTouchId = null, lookTouchId = null;
+  const joyVec = { x: 0, y: 0 };
+  let lookLast = { x: 0, y: 0 };
+
+  function joyBaseCenter(){
+    const r = joyBase.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }
+
+  canvas.addEventListener('touchstart', function(e){
+    if (gameState !== 'playing') return;
+    for (const t of e.changedTouches){
+      const el = document.elementFromPoint(t.clientX, t.clientY);
+      if (joyTouchId === null && el && (el === joyBase || el === joyKnob || joyBase.contains(el))){
+        joyTouchId = t.identifier;
+      } else if (lookTouchId === null && el && (el === touchInteractBtn || el === touchChatBtn || el === touchMenuBtn)){
+        // let the button's own handler deal with it
+      } else if (lookTouchId === null){
+        lookTouchId = t.identifier;
+        lookLast.x = t.clientX; lookLast.y = t.clientY;
+      }
+    }
+    e.preventDefault();
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', function(e){
+    for (const t of e.changedTouches){
+      if (t.identifier === joyTouchId){
+        const c = joyBaseCenter();
+        let dx = t.clientX - c.x, dy = t.clientY - c.y;
+        const dist = Math.min(Math.hypot(dx, dy), 50);
+        const ang = Math.atan2(dy, dx);
+        dx = Math.cos(ang) * dist; dy = Math.sin(ang) * dist;
+        joyKnob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+        joyVec.x = dx / 50; joyVec.y = dy / 50;
+      } else if (t.identifier === lookTouchId){
+        const dx = t.clientX - lookLast.x, dy = t.clientY - lookLast.y;
+        lookLast.x = t.clientX; lookLast.y = t.clientY;
+        if (gameState === 'playing' && !chatOpen){
+          const sens = 0.0032 * sensitivity;
+          yawObject.rotation.y -= dx * sens;
+          pitchObject.rotation.x = clamp(pitchObject.rotation.x - dy * sens, -1.35, 1.35);
+        }
+      }
+    }
+    e.preventDefault();
+  }, { passive: false });
+
+  function endTouch(e){
+    for (const t of e.changedTouches){
+      if (t.identifier === joyTouchId){
+        joyTouchId = null; joyVec.x = 0; joyVec.y = 0;
+        joyKnob.style.transform = 'translate(0,0)';
+      }
+      if (t.identifier === lookTouchId) lookTouchId = null;
+    }
+  }
+  canvas.addEventListener('touchend', endTouch, { passive: true });
+  canvas.addEventListener('touchcancel', endTouch, { passive: true });
+
+  touchInteractBtn.addEventListener('touchstart', function(e){
+    e.preventDefault();
+    touchInteractBtn.classList.add('active');
+    if (gameState === 'playing') tryInteract();
+  }, { passive: false });
+  touchInteractBtn.addEventListener('touchend', function(e){
+    e.preventDefault();
+    touchInteractBtn.classList.remove('active');
+  }, { passive: false });
+
+  touchChatBtn.addEventListener('touchstart', function(e){
+    e.preventDefault();
+    if (gameState === 'playing' && !chatOpen) openChat();
+  }, { passive: false });
+
+  touchMenuBtn.addEventListener('touchstart', function(e){
+    e.preventDefault();
+    if (gameState === 'playing') pauseGame();
+    else if (gameState === 'paused') resumeGame();
+  }, { passive: false });
+
+  const raycaster = new THREE.Raycaster();
+  const centerV2 = new THREE.Vector2(0,0);
+  let hovered = null;
+
+  function updateHover(){
+    if (!isRigActive()){
+      promptEl.hidden = true; hovered = null; return;
+    }
+    camera.updateMatrixWorld(true);
+    raycaster.setFromCamera(centerV2, camera);
+    const hits = raycaster.intersectObjects(interactables, true);
+    if (hits.length && hits[0].distance < 3.4){
+      let obj = hits[0].object;
+      while (obj && !obj.userData.interactable) obj = obj.parent;
+      hovered = obj || null;
+      promptEl.hidden = !hovered || isTouchDevice;
+      if (hovered) promptEl.textContent = 'Click para usar';
+    } else {
+      hovered = null; promptEl.hidden = true;
+    }
+  }
+
+  function tryInteract(){
+    if (hovered && hovered.userData.onClick){ hovered.userData.onClick(); }
+  }
+
+  function updateMovement(delta){
+    if (!isRigActive()) return;
+    let mx = 0, mz = 0;
+    if (isTouchDevice){
+      mx = joyVec.x; mz = joyVec.y;
+    } else {
+      if (keys['w']) mz -= 1;
+      if (keys['s']) mz += 1;
+      if (keys['a']) mx -= 1;
+      if (keys['d']) mx += 1;
+    }
+    if (mx === 0 && mz === 0) return;
+    const len = Math.hypot(mx, mz);
+    if (len > 1){ mx /= len; mz /= len; }
+    const speed = keys['shift'] ? 4.6 : 2.7;
+    const yaw = yawObject.rotation.y;
+    const forward = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    const pos = yawObject.position;
+    pos.addScaledVector(forward, -mz * speed * delta);
+    pos.addScaledVector(right, mx * speed * delta);
+    pos.x = clamp(pos.x, -ROOM.w/2 + 0.55, ROOM.w/2 - 0.55);
+    pos.z = clamp(pos.z, -ROOM.d/2 + 0.55, ROOM.d/2 - 0.55);
+  }
+
+  /* ============================================================
+     6. Chat / comms
+  ============================================================ */
+  function pushLog(kind, from, text){
+    const div = document.createElement('div');
+    div.className = 'msg ' + (kind === 'sys' ? 'sys' : (from === myRole ? 'me' : ''));
+    if (kind === 'sys'){ div.textContent = text; }
+    else {
+      const b = document.createElement('b');
+      b.textContent = (from === 'A' ? 'Sala Amarilla' : 'Sala Verde') + ':';
+      div.appendChild(b);
+      div.appendChild(document.createTextNode(text));
+    }
+    commsLog.appendChild(div);
+    while (commsLog.children.length > 5) commsLog.removeChild(commsLog.firstChild);
+  }
+
+  function openChat(){
+    chatOpen = true;
+    exitPointerLockSafely();
+    commsBar.hidden = false;
+    commsInput.value = '';
+    commsInput.focus();
+  }
+  function closeChat(relock){
+    chatOpen = false;
+    commsBar.hidden = true;
+    commsInput.blur();
+    if (relock && gameState === 'playing') requestLock();
+  }
+  function submitChat(){
+    const text = commsInput.value.trim();
+    if (text){
+      pushLog('chat', myRole, text);
+      sendGameEvent('chat', { role: myRole, text: text });
+    }
+    closeChat(true);
+  }
+  commsInput.addEventListener('keydown', function(e){
+    e.stopPropagation();
+    if (e.key === 'Enter'){
+      submitChat();
+    } else if (e.key === 'Escape'){
+      closeChat(true);
+    }
+  });
+  $('commsSendBtn').addEventListener('click', function(e){
+    e.preventDefault();
+    submitChat();
+  });
+
+  /* ============================================================
+     7. Pause menu
+  ============================================================ */
+  let gameState = 'start'; // start | waiting | playing | paused | win
+
+  function pauseGame(){
+    gameState = 'paused';
+    screenPause.hidden = false;
+    $('pauseSub').textContent = 'Nivel ' + currentLevel + ' de 3';
+    hud.hidden = true; crosshair.hidden = true; promptEl.hidden = true;
+    touchControls.hidden = true;
+  }
+  function resumeGame(){
+    screenPause.hidden = true;
+    gameState = 'playing';
+    hud.hidden = false; crosshair.hidden = false;
+    touchControls.hidden = !isTouchDevice;
+    requestLock();
+  }
+  $('resumeBtn').addEventListener('click', resumeGame);
+  $('exitBtn').addEventListener('click', function(){
+    location.reload();
+  });
+
+  const volSlider = $('volSlider'), sensSlider = $('sensSlider');
+  volSlider.value = String(volume);
+  sensSlider.value = String(Math.round(sensitivity*100));
+  $('volVal').textContent = volume + '%';
+  $('sensVal').textContent = sensitivity.toFixed(1) + 'x';
+  volSlider.addEventListener('input', function(){
+    volume = parseFloat(volSlider.value);
+    $('volVal').textContent = volume + '%';
+    saveNum('bt_vol', volume);
+    applyVolume();
+  });
+  sensSlider.addEventListener('input', function(){
+    sensitivity = parseFloat(sensSlider.value)/100;
+    $('sensVal').textContent = sensitivity.toFixed(1) + 'x';
+    saveNum('bt_sens', sensitivity);
+  });
+
+  /* ============================================================
+     8. Ambient hum (WebAudio, starts on user gesture)
+  ============================================================ */
+  let audioCtx = null, gainNode = null;
+  function initAudio(){
+    if (audioCtx) return;
+    try{
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      gainNode = audioCtx.createGain();
+      gainNode.gain.value = volume/100 * 0.05;
+      gainNode.connect(audioCtx.destination);
+      const osc = audioCtx.createOscillator();
+      osc.type = 'sawtooth'; osc.frequency.value = 60;
+      const osc2 = audioCtx.createOscillator();
+      osc2.type = 'sine'; osc2.frequency.value = 121;
+      const g2 = audioCtx.createGain(); g2.gain.value = 0.4;
+      osc2.connect(g2); g2.connect(gainNode);
+      osc.connect(gainNode);
+      osc.start(); osc2.start();
+    }catch(e){ /* audio unavailable, ignore */ }
+  }
+  function applyVolume(){
+    if (gainNode) gainNode.gain.value = volume/100 * 0.05;
+  }
+
+  /* ============================================================
+     9. Multiplayer over a plain WebSocket to our own server
+  ============================================================ */
+  let socket = null;
+  let peerConnected = false;
+  let roleLocked = false;
+
+  // Room code lives in the URL (?room=xxxx) so the "Copiar" button hands
+  // the other device a link that already points at the same room. If none
+  // is present we mint one and rewrite the address bar.
+  const ROOM_CODE = (function(){
+    const params = new URLSearchParams(location.search);
+    let code = params.get('room');
+    if (!code){
+      code = Math.random().toString(36).slice(2, 8);
+      params.set('room', code);
+      history.replaceState(null, '', location.pathname + '?' + params.toString());
+    }
+    return code;
+  })();
+  linkInput.value = location.href;
+  linkInput2.value = location.href;
+
+  function sendGameEvent(topic, data){
+    if (socket && socket.readyState === WebSocket.OPEN){
+      try{ socket.send(JSON.stringify(Object.assign({ type: topic }, data))); }catch(e){}
+    }
+  }
+
+  function setRole(role){
+    myRole = role;
+    roleLocked = true;
+    const theme = THEMES[role];
+    document.documentElement.style.setProperty('--amber', theme.accent);
+    document.documentElement.style.setProperty('--green', theme.accent);
+    roleChip.style.background = theme.accent;
+    roleLabel.textContent = theme.name;
+    ['screen-start','screen-wait','screen-pause','screen-win'].forEach(function(id){
+      $(id).style.setProperty('--accent', theme.accent);
+    });
+  }
+
+  function startGameplay(){
+    gameState = 'playing';
+    screenWait.hidden = true; screenStart.hidden = true;
+    hud.hidden = false; crosshair.hidden = false; comms.hidden = false;
+    touchControls.hidden = !isTouchDevice;
+    currentLevel = 1;
+    buildLevel(currentLevel, myRole, gameSeed);
+    pushLog('sys', null, 'Bienvenido a ' + THEMES[myRole].name + '. Cuéntale a tu compañero lo que ves.');
+    requestLock();
+  }
+
+  function updatePeerUI(){
+    peerDot.className = 'dot' + (peerConnected ? ' on' : '');
+    peerLabel.textContent = peerConnected ? 'compañero conectado' : 'esperando…';
+  }
+
+  function setDebug(text){
+    const el = $('debugLine');
+    if (el) el.textContent = text;
+  }
+
+  function tryEnterWaitFlow(){
+    screenStart.hidden = true;
+    screenWait.hidden = false;
+    updatePeerUI();
+    checkReadyToPlay();
+  }
+
+  function checkReadyToPlay(){
+    if (myRole){
+      $('waitTitle').textContent = 'Listo';
+      $('waitSub').textContent = 'Eres ' + THEMES[myRole].name;
+      $('waitText').textContent = peerConnected ? 'Ambos están conectados. ¡Suerte!' : 'Puedes empezar; tu compañero se puede sumar después.';
+      $('waitDot').classList.remove('pulse');
+      $('readyBtn').hidden = false;
+    }
+  }
+
+  $('readyBtn').addEventListener('click', function(){
+    initAudio();
+    startGameplay();
+  });
+
+  $('enterBtn').addEventListener('click', function(){
+    initAudio();
+    tryEnterWaitFlow();
+  });
+
+  $('soloBtn').addEventListener('click', function(){
+    initAudio();
+    soloMode = true;
+    if (!myRole){ setRole('A'); }
+    startGameplay();
+  });
+
+  $('restartBtn').addEventListener('click', function(){ location.reload(); });
+
+  function wsUrl(){
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return proto + '//' + location.host + '/ws?room=' + encodeURIComponent(ROOM_CODE);
+  }
+
+  let reconnectDelay = 1000;
+  function initNet(){
+    setDebug('conectando al servidor…');
+    let sock;
+    try{ sock = new WebSocket(wsUrl()); }
+    catch(e){ setDebug('no se pudo abrir WebSocket: ' + e.message); return; }
+    socket = sock;
+
+    sock.addEventListener('open', function(){
+      reconnectDelay = 1000;
+      setDebug('conectado al servidor' + (myRole ? ' · rol: ' + myRole : ' · esperando rol…'));
+    });
+
+    sock.addEventListener('message', function(ev){
+      let msg;
+      try{ msg = JSON.parse(ev.data); }catch(e){ return; }
+      if (!msg || typeof msg.type !== 'string') return;
+
+      if (msg.type === 'welcome'){
+        if (!soloMode){
+          gameSeed = msg.seed;
+          setRole(msg.role);
+          checkReadyToPlay();
+        }
+      } else if (msg.type === 'full'){
+        setDebug('esta sala ya tiene dos jugadores. Usa otro link (?room=) para abrir una nueva.');
+      } else if (msg.type === 'peer_joined'){
+        peerConnected = true;
+        updatePeerUI();
+        checkReadyToPlay();
+        if (gameState === 'playing') pushLog('sys', null, 'Tu compañero se conectó.');
+      } else if (msg.type === 'peer_left'){
+        peerConnected = false;
+        updatePeerUI();
+        if (gameState === 'playing') pushLog('sys', null, 'Tu compañero se desconectó. Puedes seguir explorando; sus puertas quedarán como estaban.');
+      } else if (msg.type === 'solved'){
+        if (gameState !== 'playing' || msg.role === myRole) return;
+        onPartnerSolved(msg.level);
+      } else if (msg.type === 'chat'){
+        if (msg.role === myRole) return;
+        pushLog('chat', msg.role, String(msg.text || '').slice(0, 200));
+      }
+      setDebug('conectado al servidor' + (myRole ? ' · rol: ' + myRole : ' · esperando rol…') +
+        ' · compañero: ' + (peerConnected ? 'sí' : 'no'));
+    });
+
+    sock.addEventListener('close', function(){
+      peerConnected = false;
+      updatePeerUI();
+      setDebug('conexión perdida, reintentando en ' + Math.round(reconnectDelay/1000) + 's…');
+      setTimeout(initNet, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 1.6, 10000);
+    });
+
+    sock.addEventListener('error', function(){
+      setDebug('error de conexión con el servidor');
+    });
+  }
+
+  /* ============================================================
+     10. Main loop
+  ============================================================ */
+  const clock = new THREE.Clock();
+  function loop(){
+    requestAnimationFrame(loop);
+    const delta = Math.min(clock.getDelta(), 0.06);
+    updateMovement(delta);
+    updateHover();
+    if (ceilLight){
+      flickerSeed += delta;
+      const flicker = 1 + Math.sin(flickerSeed*7)*0.04 + (Math.random()<0.01 ? -0.3 : 0);
+      ceilLight.intensity = 1.1 * clamp(flicker, 0.5, 1.2);
+    }
+    renderer.render(scene, camera);
+  }
+  requestAnimationFrame(loop);
+
+  initNet();
+})();
+</script>
+</body>
+</html>
