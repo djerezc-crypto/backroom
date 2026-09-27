@@ -1266,28 +1266,35 @@
   });
 
   /* ============================================================
-     10. Ambient hum (WebAudio, starts on user gesture)
+     10. Background music (starts on user gesture)
   ============================================================ */
-  let audioCtx = null, gainNode = null;
+  let audioCtx = null, gainNode = null, bgMusic = null, bgMusicNode = null;
   function initAudio(){
-    if (audioCtx) return;
-    try{
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      gainNode = audioCtx.createGain();
-      gainNode.gain.value = volume/100 * 0.05;
-      gainNode.connect(audioCtx.destination);
-      const osc = audioCtx.createOscillator();
-      osc.type = 'sawtooth'; osc.frequency.value = 60;
-      const osc2 = audioCtx.createOscillator();
-      osc2.type = 'sine'; osc2.frequency.value = 121;
-      const g2 = audioCtx.createGain(); g2.gain.value = 0.4;
-      osc2.connect(g2); g2.connect(gainNode);
-      osc.connect(gainNode);
-      osc.start(); osc2.start();
-    }catch(e){ /* audio unavailable, ignore */ }
+    if (!audioCtx){
+      try{
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        gainNode = audioCtx.createGain();
+        gainNode.gain.value = volume/100 * 0.6;
+        gainNode.connect(audioCtx.destination);
+
+        bgMusic = new Audio('music.mp3');
+        bgMusic.loop = true;
+        bgMusic.crossOrigin = 'anonymous';
+        // Routed through the WebAudio graph (via gainNode) so the volume
+        // slider controls it exactly like it controls the jumpscare sound.
+        bgMusicNode = audioCtx.createMediaElementSource(bgMusic);
+        bgMusicNode.connect(gainNode);
+      }catch(e){ /* audio unavailable, ignore */ }
+    }
+    if (audioCtx && audioCtx.state === 'suspended'){
+      audioCtx.resume().catch(function(){});
+    }
+    if (bgMusic && bgMusic.paused){
+      bgMusic.play().catch(function(){ /* will retry on the next gesture */ });
+    }
   }
   function applyVolume(){
-    if (gainNode) gainNode.gain.value = volume/100 * 0.05;
+    if (gainNode) gainNode.gain.value = volume/100 * 0.6;
   }
 
   /* ============================================================
