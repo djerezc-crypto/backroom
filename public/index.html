@@ -41,36 +41,69 @@
   /* ---------- touch controls (phones/tablets) ---------- */
   #touchControls{ position:absolute; inset:0; z-index:12; pointer-events:none; touch-action:none; }
   #joyBase{
-    position:absolute; left:22px; bottom:calc(22px + env(safe-area-inset-bottom,0px));
-    width:112px; height:112px; border-radius:50%;
-    background:rgba(239,233,216,0.08); border:2px solid rgba(239,233,216,0.35);
+    position:absolute; left:26px; bottom:calc(26px + env(safe-area-inset-bottom,0px));
+    width:130px; height:130px; border-radius:50%;
+    background:rgba(239,233,216,0.14); border:3px solid rgba(239,233,216,0.55);
+    box-shadow:0 0 0 1px rgba(0,0,0,0.5), 0 6px 18px rgba(0,0,0,0.4);
     pointer-events:auto;
   }
   #joyKnob{
-    position:absolute; left:50%; top:50%; width:50px; height:50px; margin:-25px;
-    border-radius:50%; background:rgba(239,233,216,0.55);
+    position:absolute; left:50%; top:50%; width:58px; height:58px; margin:-29px;
+    border-radius:50%; background:rgba(239,233,216,0.85);
+    box-shadow:0 2px 8px rgba(0,0,0,0.5);
     transition:transform .05s linear;
   }
   .touch-btn{
     position:absolute; pointer-events:auto;
     display:flex; align-items:center; justify-content:center;
-    border-radius:50%; border:2px solid rgba(239,233,216,0.4);
-    background:rgba(14,13,9,0.55); color:var(--text);
-    font-family:"IBM Plex Mono",monospace; font-weight:600;
+    border-radius:50%; border:3px solid rgba(239,233,216,0.6);
+    background:rgba(14,13,9,0.72); color:var(--text);
+    font-family:"IBM Plex Mono",monospace; font-weight:700;
+    text-shadow:0 1px 3px rgba(0,0,0,0.8);
+    box-shadow:0 4px 14px rgba(0,0,0,0.45);
     -webkit-tap-highlight-color:transparent; user-select:none;
   }
   #touchInteract{
-    right:24px; bottom:calc(30px + env(safe-area-inset-bottom,0px));
-    width:78px; height:78px; font-size:12px;
+    right:26px; bottom:calc(34px + env(safe-area-inset-bottom,0px));
+    width:92px; height:92px; font-size:14px; letter-spacing:.04em;
+    background:rgba(224,168,53,0.28); border-color:rgba(224,168,53,0.85);
   }
-  #touchInteract.active{ background:rgba(224,168,53,0.5); }
+  #touchInteract.active{ background:rgba(224,168,53,0.6); }
   #touchChat{
-    right:34px; bottom:calc(120px + env(safe-area-inset-bottom,0px));
-    width:52px; height:52px; font-size:20px;
+    right:38px; bottom:calc(140px + env(safe-area-inset-bottom,0px));
+    width:62px; height:62px; font-size:24px;
   }
   #touchMenu{
-    right:16px; top:calc(16px + env(safe-area-inset-top,0px));
-    width:44px; height:44px; font-size:18px;
+    right:18px; top:calc(18px + env(safe-area-inset-top,0px));
+    width:52px; height:52px; font-size:20px;
+  }
+
+  /* extra clarity for touch devices in general (bigger text, more contrast) */
+  body.touch-device #hud .hud-badge{ font-size:14px; padding:8px 14px; background:rgba(10,9,6,0.75); }
+  body.touch-device #prompt{ font-size:15px; padding:9px 16px; bottom:150px; background:rgba(10,9,6,0.85); }
+  body.touch-device #comms-log .msg{ font-size:14px; padding:7px 11px; }
+  body.touch-device #comms-log .msg b{ font-size:12.5px; }
+  body.touch-device #comms-hint{ font-size:12.5px; padding:4px 10px; }
+  body.touch-device #crosshair{ width:8px; height:8px; }
+
+  /* ---------- rotate-to-landscape prompt ---------- */
+  #rotateOverlay{
+    position:fixed; inset:0; z-index:999;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    background:rgba(6,5,3,0.96);
+    text-align:center; padding:24px;
+  }
+  #rotateOverlay .rotate-icon{
+    font-size:54px;
+    animation:rotateHint 1.6s ease-in-out infinite;
+  }
+  #rotateOverlay p{
+    font-family:"IBM Plex Sans", sans-serif; font-size:16px; color:var(--text);
+    max-width:280px; line-height:1.5; margin:0;
+  }
+  @keyframes rotateHint{
+    0%,100%{ transform:rotate(0deg); }
+    50%{ transform:rotate(-90deg); }
   }
 
   /* ---------- shared overlay chrome ---------- */
@@ -293,6 +326,11 @@
 <div id="app">
   <canvas id="scene"></canvas>
 
+  <div id="rotateOverlay" hidden>
+    <div class="rotate-icon">📱</div>
+    <p>Gira tu celular a horizontal para ver mejor y jugar más cómodo.</p>
+  </div>
+
   <div id="hud" hidden>
     <div class="hud-badge">
       <span class="role-chip" id="roleChip"></span>
@@ -486,8 +524,31 @@
   const touchControls = $('touchControls'), joyBase = $('joyBase'), joyKnob = $('joyKnob'),
         touchInteractBtn = $('touchInteract'), touchChatBtn = $('touchChat'), touchMenuBtn = $('touchMenu');
   const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+  document.body.classList.toggle('touch-device', isTouchDevice);
   const comms = $('comms'), commsLog = $('comms-log'), commsBar = $('comms-bar'), commsInput = $('commsInput');
   const bannerEl = $('banner'), bannerTitle = $('bannerTitle'), bannerSub = $('bannerSub');
+
+  /* ---- rotate-to-landscape hint (phones only) ---- */
+  const rotateOverlay = $('rotateOverlay');
+  function isPortrait(){
+    return window.matchMedia ? matchMedia('(orientation: portrait)').matches : innerHeight > innerWidth;
+  }
+  function checkOrientation(){
+    if (!isTouchDevice){ rotateOverlay.hidden = true; return; }
+    rotateOverlay.hidden = !isPortrait();
+  }
+  addEventListener('resize', checkOrientation);
+  addEventListener('orientationchange', checkOrientation);
+  checkOrientation();
+
+  function tryLockLandscape(){
+    if (!isTouchDevice) return;
+    try{
+      if (screen.orientation && screen.orientation.lock){
+        screen.orientation.lock('landscape').catch(function(){ /* not supported (e.g. iOS Safari) — the on-screen hint covers it */ });
+      }
+    }catch(e){ /* ignore */ }
+  }
 
   const screenStart = $('screen-start'), screenWait = $('screen-wait'),
         screenPause = $('screen-pause'), screenWin = $('screen-win');
@@ -623,11 +684,14 @@
     strip.rotation.x = Math.PI/2; strip.position.y = ROOM.h - 0.03;
     g.add(strip);
 
-    ceilLight = new THREE.PointLight(0xfff2cf, 1.1, ROOM.d*1.3, 2);
+    // small phone screens read as much darker than a laptop display, so
+    // boost the lighting a bit when playing on a touch device
+    const mobileBoost = isTouchDevice ? 1.55 : 1;
+    ceilLight = new THREE.PointLight(0xfff2cf, 1.1 * mobileBoost, ROOM.d*1.3, 2);
     ceilLight.position.set(0, ROOM.h - 0.4, 0);
     g.add(ceilLight);
 
-    const hemi = new THREE.HemisphereLight(theme.ceil, theme.floor, 0.55);
+    const hemi = new THREE.HemisphereLight(theme.ceil, theme.floor, 0.55 * mobileBoost);
     g.add(hemi);
 
     return g;
@@ -705,7 +769,7 @@
   function buildLevel(level, role, seed){
     clearLevel();
     const theme = THEMES[role];
-    scene.fog = new THREE.Fog(theme.fog, 4, 17);
+    scene.fog = new THREE.Fog(theme.fog, isTouchDevice ? 5.5 : 4, isTouchDevice ? 20 : 17);
     scene.background = new THREE.Color(theme.fog);
     levelGroup.add(buildShell(theme));
 
@@ -1262,6 +1326,7 @@
     buildLevel(currentLevel, myRole, gameSeed);
     pushLog('sys', null, 'Bienvenido a ' + THEMES[myRole].name + '. Cuéntale a tu compañero lo que ves.');
     requestLock();
+    tryLockLandscape();
   }
 
   function updatePeerUI(){
@@ -1386,7 +1451,7 @@
     if (ceilLight){
       flickerSeed += delta;
       const flicker = 1 + Math.sin(flickerSeed*7)*0.04 + (Math.random()<0.01 ? -0.3 : 0);
-      ceilLight.intensity = 1.1 * clamp(flicker, 0.5, 1.2);
+      ceilLight.intensity = 1.1 * (isTouchDevice ? 1.55 : 1) * clamp(flicker, 0.5, 1.2);
     }
     renderer.render(scene, camera);
   }
