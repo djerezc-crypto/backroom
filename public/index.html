@@ -1129,67 +1129,31 @@
   // reference photo chasing you, not a sculpted approximation of it.
   const SCREAM_TEXTURE = new THREE.TextureLoader().load('scream.png');
 
+  // The level-2+ reference clip, played on a loop and reused the same way
+  // — a sculpted 3D copy didn't read as the right person, so this is
+  // literally the uploaded video instead, exactly like the level-1 photo.
+  const MONSTER_VIDEO = document.createElement('video');
+  MONSTER_VIDEO.src = 'screamer2.mp4';
+  MONSTER_VIDEO.loop = true;
+  MONSTER_VIDEO.muted = true;
+  MONSTER_VIDEO.playsInline = true;
+  const MONSTER_VIDEO_TEXTURE = new THREE.VideoTexture(MONSTER_VIDEO);
+
   function buildMonster(level){
     const grp = new THREE.Group();
     if (level >= 2){
-      // Level 2+: a floating golden bust sculpted to resemble the
-      // reference clip — short hair, brow, wide nose, mustache, jaw,
-      // ears — in one solid bronze/gold tone. It doesn't spin; it turns
-      // to face you as it hunts, like the rest of the stalkers.
-      grp.userData.style = 'bust';
-      const gold = new THREE.MeshStandardMaterial({ color: 0xc9a251, roughness: 0.5, metalness: 0.25 });
-      const darkGold = new THREE.MeshStandardMaterial({ color: 0x8a6a34, roughness: 0.6, metalness: 0.2 });
-
-      const skull = new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 14), gold);
-      skull.scale.set(1.0, 1.15, 1.0);
-      grp.add(skull);
-
-      // short hair cap + a bit of extra mass at the back of the head
-      const hair = new THREE.Mesh(new THREE.SphereGeometry(0.27, 14, 12, 0, Math.PI*2, 0, 1.7), darkGold);
-      hair.position.y = 0.03;
-      grp.add(hair);
-
-      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.045, 0.1), darkGold);
-      brow.position.set(0, 0.075, -0.215);
-      grp.add(brow);
-
-      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.15, 6), gold);
-      nose.rotation.x = -Math.PI/2;
-      nose.position.set(0, -0.025, -0.255);
-      grp.add(nose);
-
-      // mustache: a thin dark ridge just above the mouth
-      const mustache = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.05), darkGold);
-      mustache.position.set(0, -0.115, -0.235);
-      grp.add(mustache);
-
-      const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.02, 0.03), darkGold);
-      mouth.position.set(0, -0.155, -0.24);
-      grp.add(mouth);
-
-      const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.16, 0.2), gold);
-      jaw.position.set(0, -0.24, -0.04);
-      grp.add(jaw);
-
-      [-1, 1].forEach(function(side){
-        const ear = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), gold);
-        ear.scale.set(0.6, 1, 0.5);
-        ear.position.set(side * 0.27, -0.03, 0);
-        grp.add(ear);
+      // Level 2+: the reference clip itself, floating and looping on a
+      // camera-facing billboard — same treatment as the level-1 photo.
+      grp.userData.style = 'video';
+      const size = 1.3;
+      const mat = new THREE.MeshBasicMaterial({
+        map: MONSTER_VIDEO_TEXTURE, transparent: true, side: THREE.DoubleSide
       });
-
-      const bust = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.44, 0.46, 14), gold);
-      bust.position.set(0, -0.52, 0);
-      grp.add(bust);
-
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2b2b });
-      [-1, 1].forEach(function(side){
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
-        eye.position.set(side * 0.085, 0.02, -0.24);
-        grp.add(eye);
-      });
-      const glow = new THREE.PointLight(0xffcf7a, 0.7, 2.6, 2);
+      const cutout = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
+      grp.add(cutout);
+      const glow = new THREE.PointLight(0xffcf7a, 0.6, 2.6, 2);
       grp.add(glow);
+      MONSTER_VIDEO.play().catch(function(){ /* will retry on next user gesture */ });
     } else {
       // Level 1: literally the reference photo, as a flat cutout that
       // always turns to face you (a billboard) as it approaches — the
@@ -1283,19 +1247,19 @@
         monster.rotation.y = Math.atan2(-dx, -dz);
       }
     }
-    if (monster.userData.style === 'bust'){
-      // Floats at head height, facing the way it's moving (set above) —
-      // no spinning, just a disembodied head hunting you down.
+    if (monster.userData.style === 'video'){
+      // Floats at head height with a slow bob — no legs, it's the clip
+      // itself hovering toward you.
       monster.position.y = 1.62 + Math.sin(performance.now() * 0.004) * 0.08;
     } else {
       // A slight uneven bob so it doesn't glide like it's on rails.
       monster.position.y = Math.sin(performance.now() * 0.006) * 0.04;
     }
 
-    // The level-1 photo cutout is a billboard — it always turns to face
-    // you directly, regardless of which way it's walking, like it's
-    // staring right at you as it closes in.
-    if (monster.userData.style === 'photo'){
+    // The photo/video cutouts are billboards — they always turn to face
+    // you directly, regardless of which way they're walking, like they're
+    // staring right at you as they close in.
+    if (monster.userData.style === 'photo' || monster.userData.style === 'video'){
       const fx = yawObject.position.x - monster.position.x;
       const fz = yawObject.position.z - monster.position.z;
       monster.rotation.y = Math.atan2(fx, fz);
