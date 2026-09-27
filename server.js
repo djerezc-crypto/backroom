@@ -91,6 +91,10 @@ wss.on('connection', function (ws, req) {
       typeof msg.shirt === 'number' && typeof msg.pants === 'number'
     ) {
       send(otherSide, { type: 'appearance', role: ws.role, shirt: msg.shirt, pants: msg.pants });
+    } else if (
+      msg.type === 'item' && Number.isInteger(msg.level) && Number.isInteger(msg.index)
+    ) {
+      send(otherSide, { type: 'item', role: ws.role, level: msg.level, index: msg.index });
     }
   });
 

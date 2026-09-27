@@ -339,6 +339,9 @@
       <span id="roleLabel">—</span>
     </div>
     <div class="hud-badge level-chip">LABERINTO <b id="levelNum">1</b> / 3</div>
+    <div class="hud-badge" id="itemsBadge" hidden>
+      OBJETOS <b id="itemsCount">0</b>/<b id="itemsTotal">0</b>
+    </div>
     <div class="hud-badge">
       <span class="dot" id="peerDot"></span>
       <span id="peerLabel">solo</span>
@@ -488,6 +491,7 @@
   const canvas = $('scene');
   const hud = $('hud'), roleChip = $('roleChip'), roleLabel = $('roleLabel'),
         levelNum = $('levelNum'), peerDot = $('peerDot'), peerLabel = $('peerLabel');
+  const itemsBadge = $('itemsBadge'), itemsCountEl = $('itemsCount'), itemsTotalEl = $('itemsTotal');
   const crosshair = $('crosshair');
   const touchControls = $('touchControls'), joyBase = $('joyBase'), joyKnob = $('joyKnob'),
         touchChatBtn = $('touchChat'), touchMenuBtn = $('touchMenu');
@@ -571,7 +575,8 @@
   const CELL = 3.4;              // corridor cell size
   const WALL_H = 3.1;
   const EYE_H = 1.65;
-  const MAZE_SIZES = [7, 9, 11]; // grows each level
+  const MAZE_SIZES = [11, 13, 15]; // grows each level (level 1 made bigger on request)
+  const ITEM_COUNTS = [3, 4, 5];   // objects to find before the door unlocks, per level
 
   /* ============================================================
      3. Three.js persistent rig
@@ -615,6 +620,13 @@
     monster = null;
     monsterState = null;
     clearTimeout(monsterSpawnTimer);
+    items = [];
+    itemsCollected = 0;
+    itemsTotal = 0;
+    doorGroup = null;
+    doorBoxRef = null;
+    doorUnlocked = false;
+    activeLights = [];
   }
 
   /* ============================================================
@@ -631,6 +643,18 @@
   let levelReached = false;
   let mazeCells = null;   // current level's cell grid, kept for the monster's pathfinding
   let worldXG = null, worldZG = null; // grid->world helpers for the current level (set in buildMaze)
+
+  // Objects-to-find gate on the exit door.
+  let items = [];              // [{ x, z, mesh, collected }]
+  let itemsCollected = 0;
+  let itemsTotal = 0;
+  let doorGroup = null;
+  let doorBoxRef = null;       // the wallBoxes entry blocking the door while locked
+  let doorUnlocked = false;
+
+  // All the level's lights, flickered together each frame (see main loop).
+  let activeLights = [];
+  let mobileBoostG = 1;
 
   // Classic randomized-DFS ("recursive backtracker") maze generator. Both
   // clients run this with the SAME seed, so they end up with byte-for-byte
@@ -861,22 +885,28 @@
     }
 
     const mobileBoost = isTouchDevice ? 1.55 : 1;
+    mobileBoostG = mobileBoost;
+    activeLights = [];
+
     ceilLight = new THREE.PointLight(0xfff3ce, 1.0 * mobileBoost, CELL*4, 2);
     ceilLight.position.set(0, WALL_H-0.3, 0);
     levelGroup.add(ceilLight);
+    activeLights.push({ light: ceilLight, base: 1.0, phase: Math.random()*100 });
     addFixture(0, 0);
     const hemi = new THREE.HemisphereLight(0xcbb36a, 0x2c2410, 0.55 * mobileBoost);
     levelGroup.add(hemi);
 
     // a handful of extra lights scattered around so distant corridors
-    // aren't pitch black
+    // aren't pitch black — every one of them flickers too (see main loop),
+    // not just the light nearest the spawn point.
     const lightRng = mulberry32((seed + level*97 + 555) >>> 0);
-    const extraLights = Math.max(3, Math.floor(mazeSize*mazeSize/9));
-    for (let i=0;i<extraLights;i++){
+    const extraLightCount = Math.max(3, Math.floor(mazeSize*mazeSize/9));
+    for (let i=0;i<extraLightCount;i++){
       const lx = Math.floor(lightRng()*mazeSize), ly = Math.floor(lightRng()*mazeSize);
       const l = new THREE.PointLight(0xf5e6ad, 0.65 * mobileBoost, CELL*3.4, 2);
       l.position.set(worldX(lx), WALL_H-0.4, worldZ(ly));
       levelGroup.add(l);
+      activeLights.push({ light: l, base: 0.65, phase: Math.random()*100 });
       addFixture(worldX(lx), worldZ(ly));
     }
 
@@ -885,15 +915,47 @@
     const ex = Math.floor(mazeSize/2), ey = Math.floor(mazeSize/2);
     exitPos = { x: worldX(ex), z: worldZ(ey) };
 
-    const exitMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.9, 0.9, 0.08, 24),
-      new THREE.MeshBasicMaterial({ color:0x6fae52 })
-    );
-    exitMesh.position.set(exitPos.x, 0.05, exitPos.z);
-    levelGroup.add(exitMesh);
-    const exitGlow = new THREE.PointLight(0x6fae52, 1.4, 4.5, 2);
-    exitGlow.position.set(exitPos.x, 1.2, exitPos.z);
-    levelGroup.add(exitGlow);
+    // The exit is a locked door, not a pad you just walk onto — it only
+    // opens once every scattered object has been picked up. Orient it
+    // along whichever pair of opposite walls is actually open at that
+    // cell, so it sits flush across the real corridor.
+    const exitCell = cells[ey][ex];
+    // true when the open corridor through this cell runs north/south, so
+    // the door should stand across it facing that way (blocking Z travel)
+    const doorBlocksNS = !exitCell.N || !exitCell.S;
+    doorGroup = buildDoor();
+    doorGroup.position.set(exitPos.x, 0, exitPos.z);
+    doorGroup.rotation.y = doorBlocksNS ? 0 : Math.PI/2;
+    levelGroup.add(doorGroup);
+    const doorHalfLong = CELL/2, doorHalfShort = 0.14;
+    doorBoxRef = doorBlocksNS
+      ? { minX: exitPos.x-doorHalfLong, maxX: exitPos.x+doorHalfLong, minZ: exitPos.z-doorHalfShort, maxZ: exitPos.z+doorHalfShort }
+      : { minX: exitPos.x-doorHalfShort, maxX: exitPos.x+doorHalfShort, minZ: exitPos.z-doorHalfLong, maxZ: exitPos.z+doorHalfLong };
+    wallBoxes.push(doorBoxRef);
+
+    // Scatter the objects you need to find before the door will open, in
+    // open cells away from both spawns and the door itself.
+    itemsTotal = ITEM_COUNTS[Math.min(level-1, ITEM_COUNTS.length-1)];
+    itemsCollected = 0;
+    items = [];
+    const itemRng = mulberry32((seed + level*97 + 999) >>> 0);
+    let guard = 0;
+    while (items.length < itemsTotal && guard < 500){
+      guard++;
+      const ix = Math.floor(itemRng()*mazeSize), iy = Math.floor(itemRng()*mazeSize);
+      const tooCloseToSpawnA = ix===0 && iy===0, tooCloseToSpawnB = ix===mazeSize-1 && iy===mazeSize-1;
+      const isDoorCell = ix===ex && iy===ey;
+      const dup = items.some(function(it){ return it.cx===ix && it.cy===iy; });
+      if (tooCloseToSpawnA || tooCloseToSpawnB || isDoorCell || dup) continue;
+      const ipos = { x: worldX(ix), z: worldZ(iy) };
+      const mesh = buildItemMesh();
+      mesh.position.set(ipos.x, 0.9, ipos.z);
+      levelGroup.add(mesh);
+      items.push({ cx: ix, cy: iy, x: ipos.x, z: ipos.z, mesh: mesh, collected: false });
+    }
+    itemsBadge.hidden = false;
+    itemsTotalEl.textContent = String(itemsTotal);
+    itemsCountEl.textContent = '0';
 
     const startSpawn = myRole === 'B' ? spawnB : spawnA;
     yawObject.position.set(startSpawn.x, EYE_H, startSpawn.z);
@@ -908,6 +970,100 @@
     // monster would only ever spawn once, on level 1, and never again
     // after advancing — which is exactly why it wasn't showing up on 2+.
     scheduleMonsterSpawn();
+  }
+
+  // A collectible object: a small glowing crystal that slowly bobs and
+  // spins so it reads clearly against the dim, hazy corridors.
+  function buildItemMesh(){
+    const grp = new THREE.Group();
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x6fe0e8, emissive: 0x2fa6ae, emissiveIntensity: 0.9, roughness: 0.3
+    });
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.16, 0), mat);
+    grp.add(gem);
+    const glow = new THREE.PointLight(0x6fe0e8, 0.9, 2.6, 2);
+    grp.add(glow);
+    grp.userData.gem = gem;
+    return grp;
+  }
+
+  // A locked door blocking the exit cell: a frame with a hinged panel
+  // that swings open once all objects are collected, plus a red/green
+  // indicator light so it reads at a glance as locked or open.
+  function buildDoor(){
+    const grp = new THREE.Group();
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x1c140c, roughness: 0.9 });
+    const panelMat = new THREE.MeshStandardMaterial({
+      color: 0x4a2f18, roughness: 0.6, emissive: 0x000000, emissiveIntensity: 0
+    });
+    const doorW = CELL*0.72, doorH = WALL_H*0.82, doorT = 0.1;
+
+    const sideGeom = new THREE.BoxGeometry(0.12, doorH + 0.12, doorT*1.8);
+    const left = new THREE.Mesh(sideGeom, frameMat); left.position.set(-doorW/2-0.06, (doorH+0.12)/2, 0);
+    const right = new THREE.Mesh(sideGeom, frameMat); right.position.set(doorW/2+0.06, (doorH+0.12)/2, 0);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(doorW+0.24, 0.12, doorT*1.8), frameMat);
+    top.position.set(0, doorH+0.12, 0);
+    grp.add(left, right, top);
+
+    const pivot = new THREE.Group();
+    pivot.position.set(-doorW/2, 0, 0);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(doorW, doorH, doorT), panelMat);
+    panel.position.set(doorW/2, doorH/2, 0);
+    pivot.add(panel);
+    grp.add(pivot);
+
+    const indicator = new THREE.Mesh(
+      new THREE.SphereGeometry(0.045, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff3b3b })
+    );
+    indicator.position.set(0, doorH*0.75, doorT*1.5);
+    grp.add(indicator);
+    const indicatorBack = indicator.clone();
+    indicatorBack.position.z = -doorT*1.5;
+    grp.add(indicatorBack);
+
+    grp.userData.pivot = pivot;
+    grp.userData.panelMat = panelMat;
+    grp.userData.indicators = [indicator, indicatorBack];
+    grp.userData.openAngle = 0;
+    return grp;
+  }
+
+  function checkItemProximity(){
+    if (!items.length) return;
+    for (let i=0;i<items.length;i++){
+      const it = items[i];
+      if (it.collected) continue;
+      const dx = yawObject.position.x - it.x, dz = yawObject.position.z - it.z;
+      if (dx*dx + dz*dz < 0.8*0.8){
+        collectItem(i);
+        sendGameEvent('item', { level: currentLevel, index: i });
+      }
+    }
+  }
+
+  function collectItem(index){
+    const it = items[index];
+    if (!it || it.collected) return;
+    it.collected = true;
+    it.mesh.visible = false;
+    itemsCollected++;
+    itemsCountEl.textContent = String(itemsCollected);
+    if (navigator.vibrate){ try{ navigator.vibrate(40); }catch(e){} }
+    if (itemsCollected >= itemsTotal){
+      unlockDoor();
+    }
+  }
+
+  function unlockDoor(){
+    if (doorUnlocked || !doorGroup) return;
+    doorUnlocked = true;
+    if (doorBoxRef){
+      const idx = wallBoxes.indexOf(doorBoxRef);
+      if (idx >= 0) wallBoxes.splice(idx, 1);
+    }
+    doorGroup.userData.indicators.forEach(function(ind){ ind.material.color.setHex(0x4be05a); });
+    pushLog('sys', null, 'La puerta se desbloqueó — ¡vayan a la salida!');
   }
 
   function resolveWallCollisions(pos, radius){
@@ -927,10 +1083,19 @@
     }
   }
 
+  let lastDoorHint = -999;
   function checkExitProximity(){
     if (levelReached || !exitPos) return;
     const dx = yawObject.position.x - exitPos.x, dz = yawObject.position.z - exitPos.z;
     if (dx*dx + dz*dz < 1.1*1.1){
+      if (!doorUnlocked){
+        const now = performance.now();
+        if (now - lastDoorHint > 4000){
+          lastDoorHint = now;
+          pushLog('sys', null, 'La puerta está cerrada — faltan objetos por encontrar (' + itemsCollected + '/' + itemsTotal + ').');
+        }
+        return;
+      }
       levelReached = true;
       sendGameEvent('exit', { level: currentLevel });
       advanceLevel();
@@ -1502,6 +1667,7 @@
       pos.addScaledVector(right, mx * speed * delta);
       resolveWallCollisions(pos, 0.42);
     }
+    checkItemProximity();
     checkExitProximity();
   }
 
@@ -1786,6 +1952,9 @@
       } else if (msg.type === 'appearance'){
         if (msg.role === myRole) return;
         applyPeerAppearance({ shirt: msg.shirt, pants: msg.pants });
+      } else if (msg.type === 'item'){
+        if (msg.role === myRole || msg.level !== currentLevel) return;
+        collectItem(msg.index);
       } else if (msg.type === 'chat'){
         if (msg.role === myRole) return;
         pushLog('chat', msg.role, String(msg.text || '').slice(0, 200));
@@ -1818,10 +1987,31 @@
     updateMovement(delta);
     updateMonster(delta);
 
-    if (ceilLight){
+    if (activeLights.length){
       flickerSeed += delta;
-      const flicker = 1 + Math.sin(flickerSeed*7)*0.04 + (Math.random()<0.01 ? -0.3 : 0);
-      ceilLight.intensity = 1.0 * (isTouchDevice ? 1.55 : 1) * clamp(flicker, 0.5, 1.2);
+      for (let i=0;i<activeLights.length;i++){
+        const entry = activeLights[i];
+        const t = flickerSeed + entry.phase;
+        const flicker = 1 + Math.sin(t*7)*0.05 + (Math.random() < 0.012 ? -0.4 : 0);
+        entry.light.intensity = entry.base * mobileBoostG * clamp(flicker, 0.4, 1.25);
+      }
+    }
+
+    if (items.length){
+      const now = performance.now();
+      for (let i=0;i<items.length;i++){
+        const it = items[i];
+        if (it.collected) continue;
+        it.mesh.position.y = 0.9 + Math.sin(now*0.0022 + i) * 0.08;
+        it.mesh.userData.gem.rotation.y += delta * 1.4;
+        it.mesh.userData.gem.rotation.x += delta * 0.6;
+      }
+    }
+
+    if (doorGroup && doorUnlocked){
+      const target = -Math.PI * 0.62;
+      doorGroup.userData.openAngle += (target - doorGroup.userData.openAngle) * Math.min(1, delta*2.2);
+      doorGroup.userData.pivot.rotation.y = doorGroup.userData.openAngle;
     }
 
     if (peerAvatar && peerAvatar.visible){
