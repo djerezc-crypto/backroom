@@ -597,7 +597,7 @@
   // Phones/tablets get a lower render resolution cap — a big chunk of the
   // frame cost is just pixels shaded, and this is the cheapest way to keep
   // things smooth on weaker mobile GPUs.
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouchDevice ? 1.5 : 2));
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouchDevice ? 1 : 2));
   // A touch more realism: filmic tone mapping + correct color space so the
   // warm lights roll off naturally instead of just clipping to white.
   if (THREE.sRGBEncoding !== undefined) renderer.outputEncoding = THREE.sRGBEncoding;
@@ -772,7 +772,7 @@
     draw(cnv.getContext('2d'), size);
     const tex = new THREE.CanvasTexture(cnv);
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.anisotropy = 8;
+    tex.anisotropy = isTouchDevice ? 1 : 8;
     return tex;
   }
 
@@ -857,9 +857,14 @@
       ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke();
     }
   });
-  const WATER_MAT = new THREE.MeshStandardMaterial({
-    map: WATER_TEXTURE, transparent: true, opacity: 0.72, roughness: 0.12, metalness: 0.25
-  });
+  // Water covers the entire footprint of every room, so its material choice
+  // matters a lot for total shaded pixels — phones get a plain unlit
+  // material (no per-light PBR cost at all) instead of the full PBR one.
+  const WATER_MAT = isTouchDevice
+    ? new THREE.MeshBasicMaterial({ map: WATER_TEXTURE, transparent: true, opacity: 0.68 })
+    : new THREE.MeshStandardMaterial({
+        map: WATER_TEXTURE, transparent: true, opacity: 0.72, roughness: 0.12, metalness: 0.25
+      });
   WATER_MAT.map.repeat.set(24, 24);
   const waterMeshes = []; // scrolled together each frame, see main loop
 
@@ -887,7 +892,13 @@
     }
   });
 
-  const WALL_MAT = new THREE.MeshStandardMaterial({ map: WALL_TEXTURE, roughness: 0.92 });
+  // Walls are the single biggest lit surface in the game — PBR (Standard)
+  // shading's per-light specular math is real cost multiplied across every
+  // wall fragment and every light, so phones get the cheaper Lambert
+  // (diffuse-only) material instead.
+  const WALL_MAT = isTouchDevice
+    ? new THREE.MeshLambertMaterial({ map: WALL_TEXTURE })
+    : new THREE.MeshStandardMaterial({ map: WALL_TEXTURE, roughness: 0.92 });
   WALL_MAT.map.repeat.set(CELL / 1.15, WALL_H / 1.15);
   const BLOOD_MAT = new THREE.MeshBasicMaterial({
     map: BLOOD_TEXTURE, transparent: true, depthWrite: false, side: THREE.DoubleSide
@@ -930,7 +941,9 @@
   // Low-density decorative clutter (visual only, no collision, so the maze's
   // single walkable path never gets blocked) — square support columns tucked
   // toward a corner of the cell, in the same faded ceramic/metal palette.
-  const COLUMN_MAT = new THREE.MeshStandardMaterial({ color: 0xb8b6a6, roughness: 0.85 });
+  const COLUMN_MAT = isTouchDevice
+    ? new THREE.MeshLambertMaterial({ color: 0xb8b6a6 })
+    : new THREE.MeshStandardMaterial({ color: 0xb8b6a6, roughness: 0.85 });
   function buildColumn(x, z){
     const col = new THREE.Mesh(new THREE.BoxGeometry(0.32, WALL_H, 0.32), COLUMN_MAT);
     col.position.set(x, WALL_H/2, z);
@@ -969,8 +982,12 @@
   // Dead bodies slumped in wall corners, built from a handful of shared,
   // reused primitives (cheap even repeated many times — only the transforms
   // differ) with a blood pool underneath.
-  const CORPSE_SKIN_MAT = new THREE.MeshStandardMaterial({ color: 0x746a5c, roughness: 0.95 });
-  const CORPSE_STAIN_MAT = new THREE.MeshStandardMaterial({ color: 0x3a0709, roughness: 0.95 });
+  const CORPSE_SKIN_MAT = isTouchDevice
+    ? new THREE.MeshLambertMaterial({ color: 0x746a5c })
+    : new THREE.MeshStandardMaterial({ color: 0x746a5c, roughness: 0.95 });
+  const CORPSE_STAIN_MAT = isTouchDevice
+    ? new THREE.MeshLambertMaterial({ color: 0x3a0709 })
+    : new THREE.MeshStandardMaterial({ color: 0x3a0709, roughness: 0.95 });
   const corpseTorsoGeom = new THREE.BoxGeometry(0.34, 0.24, 0.86);
   const corpseHeadGeom = new THREE.SphereGeometry(0.135, 8, 8);
   const corpseLimbGeom = new THREE.CylinderGeometry(0.055, 0.075, 0.58, 6);
@@ -1032,8 +1049,9 @@
   }
 
   // Builds the whole continuous map ONCE: every room side by side along X,
-  // linked by short connector vestibules with a locked door in each — the
+  // each door set directly into the wall shared with the next room — the
   // full world exists from the start, so advancing just means walking.
+  let sharedHemi = null;
   function buildWorld(seed){
     if (levelGroup){ scene.remove(levelGroup); }
     levelGroup = new THREE.Group();
@@ -1052,6 +1070,15 @@
 
     const mobileBoost = isTouchDevice ? 1.55 : 1;
     mobileBoostG = mobileBoost;
+
+    // One shared ambient light for the whole world instead of one per room
+    // — every extra light type in the scene adds another pass to the
+    // per-fragment shading loop on every lit surface, so this alone used to
+    // cost two rooms' worth of that for no visible benefit (they're all the
+    // same flat ambient anyway).
+    if (sharedHemi) scene.remove(sharedHemi);
+    sharedHemi = new THREE.HemisphereLight(0x8a9184, 0x1c1e19, 0.32 * mobileBoost);
+    scene.add(sharedHemi);
 
     const wallGeomH = new THREE.BoxGeometry(CELL, WALL_H, 0.2);
     const wallGeomV = new THREE.BoxGeometry(0.2, WALL_H, CELL);
@@ -1090,14 +1117,20 @@
       const offsetX = offsets[i];
       const cells = generateMaze(seed + level*97, size);
 
-      const floorMat = new THREE.MeshStandardMaterial({ map: FLOOR_TEXTURE.clone(), roughness: 1 });
+      // Floor and ceiling are the other two surfaces that cover a whole
+      // room's footprint — same Lambert-on-touch swap as the walls.
+      const floorMat = isTouchDevice
+        ? new THREE.MeshLambertMaterial({ map: FLOOR_TEXTURE.clone() })
+        : new THREE.MeshStandardMaterial({ map: FLOOR_TEXTURE.clone(), roughness: 1 });
       floorMat.map.needsUpdate = true;
       floorMat.map.wrapS = floorMat.map.wrapT = THREE.RepeatWrapping;
       floorMat.map.repeat.set(total / 1.3, total / 1.3);
 
-      const ceilMat = new THREE.MeshStandardMaterial({
-        map: CEIL_TEXTURE.clone(), roughness: 0.9, emissive: 0x2e332c, emissiveIntensity: 0.08
-      });
+      const ceilMat = isTouchDevice
+        ? new THREE.MeshLambertMaterial({ map: CEIL_TEXTURE.clone(), emissive: 0x2e332c, emissiveIntensity: 0.08 })
+        : new THREE.MeshStandardMaterial({
+            map: CEIL_TEXTURE.clone(), roughness: 0.9, emissive: 0x2e332c, emissiveIntensity: 0.08
+          });
       ceilMat.map.needsUpdate = true;
       ceilMat.map.wrapS = ceilMat.map.wrapT = THREE.RepeatWrapping;
       ceilMat.map.repeat.set(total / 1.2, total / 1.2);
@@ -1195,16 +1228,18 @@
       activeLights.push({ light: ceilLight, base: 0.68, phase: Math.random()*100 });
       addFixture(offsetX, 0);
       buildPipeCluster(mulberry32((seed + level*97 + 7777) >>> 0), offsetX, 0);
-      const hemi = new THREE.HemisphereLight(0x8a9184, 0x1c1e19, 0.32 * mobileBoost);
-      levelGroup.add(hemi);
 
       const lightRng = mulberry32((seed + level*97 + 555) >>> 0);
       const pipeRng = mulberry32((seed + level*97 + 8888) >>> 0);
       // Real-time point lights are the single most expensive thing here —
       // every one of them gets looped over in the fragment shader for every
-      // lit pixel on screen, whatever its distance falloff. Phones get far
-      // fewer of them, which is the main fix for mobile stutter.
-      const extraLightCount = Math.max(3, Math.floor(size*size / (isTouchDevice ? 20 : 9)));
+      // lit pixel on screen, whatever its distance falloff, and the cost
+      // multiplies with however many other lights already exist in the
+      // scene (all three rooms' lights stay live at once in this
+      // continuous world). Phones get a small flat count instead of one
+      // that scales with room size, which is the main fix for mobile
+      // stutter.
+      const extraLightCount = isTouchDevice ? 3 : Math.max(3, Math.floor(size*size/9));
       const usedFixtureCells = [];
       for (let li=0; li<extraLightCount; li++){
         const lx = Math.floor(lightRng()*size), ly = Math.floor(lightRng()*size);
@@ -1219,7 +1254,7 @@
         }
         addFixture(worldX(lx), worldZ(ly), dead);
         usedFixtureCells.push(lx + ',' + ly);
-        if (pipeRng() < (isTouchDevice ? 0.16 : 0.4)){
+        if (pipeRng() < (isTouchDevice ? 0.08 : 0.4)){
           buildPipeCluster(pipeRng, worldX(lx), worldZ(ly));
         }
       }
@@ -1227,33 +1262,40 @@
       // Low-density decorative columns scattered through open interior
       // cells — visual clutter only (no collision), so the maze's solvable
       // path is never at risk of being blocked. Thinned out further on
-      // mobile since every extra mesh is an extra draw call.
+      // mobile since every extra mesh is an extra draw call, and hard-capped
+      // so a big/unlucky room can't spike the mesh count regardless of size.
       const propRng = mulberry32((seed + level*97 + 2323) >>> 0);
-      const propChance = isTouchDevice ? 0.012 : 0.03;
-      for (let y=0;y<size;y++){
-        for (let x=0;x<size;x++){
+      const propChance = isTouchDevice ? 0.006 : 0.03;
+      let propsLeft = isTouchDevice ? 2 : 999;
+      for (let y=0;y<size && propsLeft>0;y++){
+        for (let x=0;x<size && propsLeft>0;x++){
           const isEntry = (i > 0 && x === enx && y === eny) || (i === 0 && x===0 && y===0) || (i===0 && x===size-1 && y===size-1);
           const isExit = x === ex && y === ey;
           if (isEntry || isExit) continue;
           if (propRng() < propChance){
             const jitter = CELL * 0.28;
             buildColumn(worldX(x) + (propRng()-0.5)*jitter, worldZ(y) + (propRng()-0.5)*jitter);
+            propsLeft--;
           }
         }
       }
 
       // More blood on the floor — loose pools scattered through the room,
-      // independent of the wall-blood decals above.
+      // independent of the wall-blood decals above. Capped on mobile since
+      // these are transparent decals (real overdraw, not just triangle
+      // count).
       const floorBloodRng = mulberry32((seed + level*97 + 3131) >>> 0);
-      const floorBloodChance = isTouchDevice ? 0.05 : 0.09;
-      for (let y=0;y<size;y++){
-        for (let x=0;x<size;x++){
+      const floorBloodChance = isTouchDevice ? 0.025 : 0.09;
+      let floorBloodLeft = isTouchDevice ? 4 : 999;
+      for (let y=0;y<size && floorBloodLeft>0;y++){
+        for (let x=0;x<size && floorBloodLeft>0;x++){
           const isEntry = (i > 0 && x === enx && y === eny) || (i === 0 && x===0 && y===0) || (i===0 && x===size-1 && y===size-1);
           const isExit = x === ex && y === ey;
           if (isEntry || isExit) continue;
           if (floorBloodRng() < floorBloodChance){
             const jitter = CELL * 0.3;
             buildFloorBlood(worldX(x) + (floorBloodRng()-0.5)*jitter, worldZ(y) + (floorBloodRng()-0.5)*jitter, floorBloodRng);
+            floorBloodLeft--;
           }
         }
       }
@@ -1261,10 +1303,12 @@
       // Dead bodies slumped where two walls meet — a corner reads as a
       // corner exactly where two perpendicular sides of the cell are both
       // walled in, which the maze generator already tells us per-cell.
+      // Each one is 6 extra shaded meshes, so mobile gets very few, hard-capped.
       const corpseRng = mulberry32((seed + level*97 + 5252) >>> 0);
-      const corpseChance = isTouchDevice ? 0.12 : 0.2;
-      for (let y=0;y<size;y++){
-        for (let x=0;x<size;x++){
+      const corpseChance = isTouchDevice ? 0.05 : 0.2;
+      let corpsesLeft = isTouchDevice ? 2 : 999;
+      for (let y=0;y<size && corpsesLeft>0;y++){
+        for (let x=0;x<size && corpsesLeft>0;x++){
           const c = cells[y][x];
           const isEntry = (i > 0 && x === enx && y === eny) || (i === 0 && x===0 && y===0) || (i===0 && x===size-1 && y===size-1);
           const isExit = x === ex && y === ey;
@@ -1279,6 +1323,7 @@
             const cx = worldX(x) + cornerDX * CELL * 0.3;
             const cz = worldZ(y) + cornerDZ * CELL * 0.3;
             buildCorpse(cx, cz, cornerRot + (corpseRng()-0.5)*0.6, corpseRng);
+            corpsesLeft--;
           }
         }
       }
@@ -1355,7 +1400,9 @@
     const count = 2 + Math.floor(rng()*3);
     for (let i=0;i<count;i++){
       const color = PIPE_COLORS[Math.floor(rng()*PIPE_COLORS.length)];
-      const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.45, metalness: 0.55 });
+      const mat = isTouchDevice
+        ? new THREE.MeshLambertMaterial({ color: color })
+        : new THREE.MeshStandardMaterial({ color: color, roughness: 0.45, metalness: 0.55 });
       const len = CELL * (0.5 + rng()*0.7);
       const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, len, 8), mat);
       pipe.rotation.z = Math.PI/2;
