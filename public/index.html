@@ -57,7 +57,9 @@
     background:#000;
   }
   #screamerOverlay.show{ display:block; animation:screamerPop .12s ease-out; }
-  #screamerOverlay img{ width:100%; height:100%; object-fit:cover; filter:contrast(1.15) saturate(1.1); display:block; }
+  #screamerOverlay img, #screamerOverlay video{
+    width:100%; height:100%; object-fit:cover; filter:contrast(1.15) saturate(1.1); display:block;
+  }
   @keyframes screamerPop{ from{ transform:scale(1.5); } to{ transform:scale(1); } }
 
   /* ---------- touch controls (phones/tablets) ---------- */
@@ -326,7 +328,10 @@
 <div id="app">
   <canvas id="scene"></canvas>
 
-  <div id="screamerOverlay"><img id="screamerImg" src="scream.png" alt=""></div>
+  <div id="screamerOverlay">
+    <img id="screamerImg" src="scream.png" alt="">
+    <video id="screamerVideo" src="screamer2.mp4" muted playsinline hidden></video>
+  </div>
 
   <div id="hud" hidden>
     <div class="hud-badge">
@@ -491,6 +496,7 @@
   const comms = $('comms'), commsLog = $('comms-log'), commsBar = $('comms-bar'), commsInput = $('commsInput');
   const bannerEl = $('banner'), bannerTitle = $('bannerTitle'), bannerSub = $('bannerSub');
   const screamerOverlay = $('screamerOverlay');
+  const screamerImg = $('screamerImg'), screamerVideo = $('screamerVideo');
 
   // Best-effort: ask the browser for landscape once gameplay starts. This
   // silently does nothing where it isn't supported (iOS Safari) — the game
@@ -1112,25 +1118,58 @@
   let monsterState = null;    // { path, pathIndex, speed, repathTimer }
   let monsterSpawnTimer = null;
 
-  function buildMonster(){
+  function buildMonster(level){
     const grp = new THREE.Group();
-    const dark = new THREE.MeshStandardMaterial({ color: 0x07060a, roughness: 1 });
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.34, 1.85, 10), dark);
-    body.position.y = 0.95;
-    grp.add(body);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10), dark);
-    head.position.y = 1.95;
-    head.scale.set(0.85, 1.15, 0.9);
-    grp.add(head);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2b2b });
-    [-1, 1].forEach(function(side){
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 6, 6), eyeMat);
-      eye.position.set(side * 0.075, 1.98, -0.185);
-      grp.add(eye);
-    });
-    const glow = new THREE.PointLight(0xff2b2b, 0.6, 2.4, 2);
-    glow.position.y = 1.95;
-    grp.add(glow);
+    if (level >= 2){
+      // Level 2+: a floating golden bust — a sculpted head-and-shoulders
+      // in one solid bronze/gold tone, slowly spinning like a turntable,
+      // per the reference clip. No legs: it just floats toward you.
+      grp.userData.style = 'bust';
+      const gold = new THREE.MeshStandardMaterial({ color: 0xc9a251, roughness: 0.5, metalness: 0.3 });
+      const skull = new THREE.Mesh(new THREE.SphereGeometry(0.26, 16, 14), gold);
+      skull.scale.set(1.05, 1.25, 1.0);
+      grp.add(skull);
+      const brow = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.12), gold);
+      brow.position.set(0, 0.08, -0.21);
+      grp.add(brow);
+      const nose = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.13, 6), gold);
+      nose.rotation.x = -Math.PI/2;
+      nose.position.set(0, -0.02, -0.26);
+      grp.add(nose);
+      const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.18, 0.2), gold);
+      jaw.position.set(0, -0.26, -0.05);
+      grp.add(jaw);
+      const bust = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.42, 0.42, 14), gold);
+      bust.position.set(0, -0.5, 0);
+      grp.add(bust);
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2b2b });
+      [-1, 1].forEach(function(side){
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.035, 6, 6), eyeMat);
+        eye.position.set(side * 0.085, 0.02, -0.24);
+        grp.add(eye);
+      });
+      const glow = new THREE.PointLight(0xffcf7a, 0.7, 2.6, 2);
+      grp.add(glow);
+    } else {
+      grp.userData.style = 'dark';
+      const dark = new THREE.MeshStandardMaterial({ color: 0x07060a, roughness: 1 });
+      const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.34, 1.85, 10), dark);
+      body.position.y = 0.95;
+      grp.add(body);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10), dark);
+      head.position.y = 1.95;
+      head.scale.set(0.85, 1.15, 0.9);
+      grp.add(head);
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff2b2b });
+      [-1, 1].forEach(function(side){
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 6, 6), eyeMat);
+        eye.position.set(side * 0.075, 1.98, -0.185);
+        grp.add(eye);
+      });
+      const glow = new THREE.PointLight(0xff2b2b, 0.6, 2.4, 2);
+      glow.position.y = 1.95;
+      grp.add(glow);
+    }
     grp.visible = false;
     return grp;
   }
@@ -1153,7 +1192,7 @@
 
   function spawnMonster(){
     if (gameState !== 'playing' || !mazeCells){ scheduleMonsterSpawn(); return; }
-    if (!monster){ monster = buildMonster(); levelGroup.add(monster); }
+    if (!monster){ monster = buildMonster(currentLevel); levelGroup.add(monster); }
     const playerCell = cellOfWorld(yawObject.position.x, yawObject.position.z);
     // Try a few random spawn cells and pick whichever is FARTHEST from the
     // player by actual corridor distance, so it appears far away and has
@@ -1205,11 +1244,18 @@
       } else {
         monster.position.x += (dx/dist) * step;
         monster.position.z += (dz/dist) * step;
-        monster.rotation.y = Math.atan2(-dx, -dz);
+        if (monster.userData.style !== 'bust') monster.rotation.y = Math.atan2(-dx, -dz);
       }
     }
-    // A slight uneven bob so it doesn't glide like it's on rails.
-    monster.position.y = Math.sin(performance.now() * 0.006) * 0.04;
+    if (monster.userData.style === 'bust'){
+      // Floats at head height and just keeps spinning like the reference
+      // turntable clip, regardless of which way it's moving.
+      monster.rotation.y += delta * 2.4;
+      monster.position.y = 1.62 + Math.sin(performance.now() * 0.004) * 0.08;
+    } else {
+      // A slight uneven bob so it doesn't glide like it's on rails.
+      monster.position.y = Math.sin(performance.now() * 0.006) * 0.04;
+    }
 
     const pdx = monster.position.x - yawObject.position.x;
     const pdz = monster.position.z - yawObject.position.z;
@@ -1224,12 +1270,22 @@
   }
 
   function triggerScreamer(){
+    // From level 2 on, the catch shows the uploaded rotating 3D bust clip
+    // instead of the static photo — a longer flash so the "in 3D" turntable
+    // actually reads before it cuts away.
+    const useVideo = currentLevel >= 2;
+    screamerImg.hidden = useVideo;
+    screamerVideo.hidden = !useVideo;
+    if (useVideo){
+      try{ screamerVideo.currentTime = 0; screamerVideo.play().catch(function(){}); }catch(e){}
+    }
     screamerOverlay.classList.add('show');
     playScreamSound();
     if (navigator.vibrate){ try{ navigator.vibrate([70,40,120]); }catch(e){} }
     setTimeout(function(){
       screamerOverlay.classList.remove('show');
-    }, 550);
+      if (useVideo) screamerVideo.pause();
+    }, useVideo ? 1400 : 550);
   }
 
   function playScreamSound(){
