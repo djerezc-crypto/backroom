@@ -662,53 +662,31 @@
   resize();
 
   let levelGroup = null;
-  let ceilLight = null;
   let flickerSeed = Math.random()*100;
 
-  function clearLevel(){
-    if (levelGroup){ scene.remove(levelGroup); }
-    levelGroup = new THREE.Group();
-    scene.add(levelGroup);
-    peerAvatar = null;
-    monster = null;
-    monsterState = null;
-    clearTimeout(monsterSpawnTimer);
-    items = [];
-    itemsCollected = 0;
-    itemsTotal = 0;
-    doorGroup = null;
-    doorBoxRef = null;
-    doorUnlocked = false;
-    activeLights = [];
-  }
-
   /* ============================================================
-     4. Maze generation + assembly
+     4. World generation + assembly — ONE continuous map made of
+     ZONE_COUNT rooms placed side by side along X and linked by short
+     connector vestibules, each with its own locked door. Nothing is ever
+     torn down and rebuilt between "levels" any more — walking through an
+     unlocked door just means walking into the next, already-built room.
   ============================================================ */
-  let currentLevel = 1;
   let myRole = null;
   let soloMode = false;
   let gameSeed = Math.floor(Math.random()*1e9); // overwritten by the server's 'welcome' message once connected
 
-  let mazeSize = 7;
-  let wallBoxes = [];
-  let exitPos = null;
-  let levelReached = false;
-  let mazeCells = null;   // current level's cell grid, kept for the monster's pathfinding
-  let worldXG = null, worldZG = null; // grid->world helpers for the current level (set in buildMaze)
-  let mySpawnPos = null;  // this player's spawn point in the current level, for respawning after a catch
+  let wallBoxes = [];          // collision boxes shared by the WHOLE world
+  let zones = [];              // [{ index, size, cells, offsetX, worldX, worldZ, minX, maxX, items, itemsCollected, itemsTotal, doorGroup, doorBoxRef, doorUnlocked, exitPos, reached, entryA, entryB, monster, monsterState, monsterSpawnTimer }]
+  let zoneBoundaries = [];     // world-X thresholds between zone i and zone i+1
+  let currentZoneIndex = 0;
+  let mySpawnPos = null;       // this player's respawn point in the CURRENT zone
 
-  // Objects-to-find gate on the exit door.
-  let items = [];              // [{ x, z, mesh, collected }]
-  let itemsCollected = 0;
-  let itemsTotal = 0;
-  let doorGroup = null;
-  let doorBoxRef = null;       // the wallBoxes entry blocking the door while locked
-  let doorUnlocked = false;
-
-  // All the level's lights, flickered together each frame (see main loop).
+  // All the world's lights, flickered together each frame (see main loop).
   let activeLights = [];
+  let allItemMeshes = [];      // every zone's items, flattened, just for the bob/spin animation
   let mobileBoostG = 1;
+
+  function Z(){ return zones[currentZoneIndex] || null; }
 
   // Classic randomized-DFS ("recursive backtracker") maze generator. Both
   // clients run this with the SAME seed, so they end up with byte-for-byte
@@ -882,200 +860,266 @@
     }
   });
 
-  function buildMaze(level, seed){
-    clearLevel();
-    mazeSize = MAZE_SIZES[Math.min(level-1, MAZE_SIZES.length-1)];
-    const cells = generateMaze(seed + level*97, mazeSize);
-    wallBoxes = [];
-    levelReached = false;
+  const WALL_MAT = new THREE.MeshStandardMaterial({ map: WALL_TEXTURE, roughness: 0.92 });
+  WALL_MAT.map.repeat.set(CELL / 1.15, WALL_H / 1.15);
+  const BLOOD_MAT = new THREE.MeshBasicMaterial({
+    map: BLOOD_TEXTURE, transparent: true, depthWrite: false, side: THREE.DoubleSide
+  });
+  const FIXTURE_MAT = new THREE.MeshBasicMaterial({ color: 0xfff3ce });
+  const CONNECTOR_GAP = CELL * 1.15; // short vestibule where each connecting door lives
 
-    // Hazy, sickly-yellow fog and ambient tone instead of a plain dark
-    // green box — this is the biggest single factor in reading as
-    // "backrooms" rather than a generic dungeon corridor.
+  // Which world-X index a room occupies, given how far along the chain it is.
+  function zoneIndexForX(x){
+    for (let i=0;i<zoneBoundaries.length;i++){ if (x < zoneBoundaries[i]) return i; }
+    return zones.length - 1;
+  }
+
+  // Called whenever the player's world position crosses into a different
+  // room. Nothing is rebuilt — every room already exists — this just moves
+  // which room's monster/items/door the game logic is currently tracking.
+  function switchToZone(newIndex){
+    if (newIndex === currentZoneIndex || !zones[newIndex]) return;
+    const oldZone = Z();
+    if (oldZone){
+      clearTimeout(oldZone.monsterSpawnTimer);
+      if (oldZone.monster) oldZone.monster.visible = false;
+      oldZone.monsterState = null;
+    }
+    currentZoneIndex = newIndex;
+    const zone = Z();
+    mySpawnPos = myRole === 'B' ? zone.entryB : zone.entryA;
+    levelNum.textContent = String(zone.index + 1);
+    itemsTotalEl.textContent = String(zone.itemsTotal);
+    itemsCountEl.textContent = String(zone.itemsCollected);
+    scheduleMonsterSpawn();
+  }
+
+  // Builds the whole continuous map ONCE: every room side by side along X,
+  // linked by short connector vestibules with a locked door in each — the
+  // full world exists from the start, so advancing just means walking.
+  function buildWorld(seed){
+    if (levelGroup){ scene.remove(levelGroup); }
+    levelGroup = new THREE.Group();
+    scene.add(levelGroup);
+    wallBoxes = [];
+    zones = [];
+    zoneBoundaries = [];
+    activeLights = [];
+    allItemMeshes = [];
+    currentZoneIndex = 0;
+
     scene.fog = new THREE.Fog(0x71673f, isTouchDevice ? 6.5 : 5, isTouchDevice ? 24 : 21);
     scene.background = new THREE.Color(0x241d0c);
 
-    const total = mazeSize * CELL;
-
-    const wallMat = new THREE.MeshStandardMaterial({ map: WALL_TEXTURE, roughness: 0.92 });
-    wallMat.map.repeat.set(CELL / 1.15, WALL_H / 1.15);
-
-    const floorMat = new THREE.MeshStandardMaterial({ map: FLOOR_TEXTURE, roughness: 1 });
-    floorMat.map = FLOOR_TEXTURE.clone();
-    floorMat.map.needsUpdate = true;
-    floorMat.map.wrapS = floorMat.map.wrapT = THREE.RepeatWrapping;
-    floorMat.map.repeat.set(total / 1.3, total / 1.3);
-
-    const ceilMat = new THREE.MeshStandardMaterial({
-      map: CEIL_TEXTURE, roughness: 0.9, emissive: 0x3a3013, emissiveIntensity: 0.1
-    });
-    ceilMat.map = CEIL_TEXTURE.clone();
-    ceilMat.map.needsUpdate = true;
-    ceilMat.map.wrapS = ceilMat.map.wrapT = THREE.RepeatWrapping;
-    ceilMat.map.repeat.set(total / 1.2, total / 1.2);
-    const half = total / 2;
-    function worldX(cx){ return -half + CELL/2 + cx*CELL; }
-    function worldZ(cy){ return -half + CELL/2 + cy*CELL; }
-    mazeCells = cells;
-    worldXG = worldX;
-    worldZG = worldZ;
-
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(total, total), floorMat);
-    floor.rotation.x = -Math.PI/2;
-    levelGroup.add(floor);
-
-    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(total, total), ceilMat);
-    ceil.rotation.x = Math.PI/2; ceil.position.y = WALL_H;
-    levelGroup.add(ceil);
+    const mobileBoost = isTouchDevice ? 1.55 : 1;
+    mobileBoostG = mobileBoost;
 
     const wallGeomH = new THREE.BoxGeometry(CELL, WALL_H, 0.2);
     const wallGeomV = new THREE.BoxGeometry(0.2, WALL_H, CELL);
-
-    // Same seed on both clients so the blood shows up on the same walls for
-    // both players, not just randomly per-browser.
-    const bloodRng = mulberry32((seed + level*97 + 4242) >>> 0);
-    const bloodMat = new THREE.MeshBasicMaterial({
-      map: BLOOD_TEXTURE, transparent: true, depthWrite: false, side: THREE.DoubleSide
-    });
-
-    function addWall(x, z, horizontal){
-      const mesh = new THREE.Mesh(horizontal ? wallGeomH : wallGeomV, wallMat);
-      mesh.position.set(x, WALL_H/2, z);
-      levelGroup.add(mesh);
-      const hx = horizontal ? CELL/2 : 0.12, hz = horizontal ? 0.12 : CELL/2;
-      wallBoxes.push({ minX:x-hx, maxX:x+hx, minZ:z-hz, maxZ:z+hz });
-
-      if (bloodRng() < 0.17){
-        const decalW = CELL * (0.45 + bloodRng()*0.4);
-        const decalH = WALL_H * (0.5 + bloodRng()*0.4);
-        const decal = new THREE.Mesh(new THREE.PlaneGeometry(decalW, decalH), bloodMat);
-        const yOff = WALL_H - decalH/2 - 0.05;
-        const along = (bloodRng()-0.5) * (CELL - decalW*0.6);
-        const face = bloodRng() > 0.5 ? 1 : -1;
-        if (horizontal){
-          decal.position.set(x + along, yOff, z + face*0.11);
-          if (face < 0) decal.rotation.y = Math.PI;
-        } else {
-          decal.position.set(x + face*0.11, yOff, z + along);
-          decal.rotation.y = face > 0 ? Math.PI/2 : -Math.PI/2;
-        }
-        levelGroup.add(decal);
-      }
-    }
-
-    for (let y=0;y<mazeSize;y++){
-      for (let x=0;x<mazeSize;x++){
-        const c = cells[y][x];
-        const cx = worldX(x), cz = worldZ(y);
-        if (c.N) addWall(cx, cz - CELL/2, true);
-        if (c.W) addWall(cx - CELL/2, cz, false);
-        if (x === mazeSize-1 && c.E) addWall(cx + CELL/2, cz, false);
-        if (y === mazeSize-1 && c.S) addWall(cx, cz + CELL/2, true);
-      }
-    }
-
-    // Fluorescent tube fixture: a pale-yellow glowing panel mesh flush
-    // against the ceiling, dropped in wherever there's a light — this is
-    // what actually sells "flickering fluorescent light" rather than an
-    // invisible point light floating in empty air.
-    const fixtureMat = new THREE.MeshBasicMaterial({ color: 0xfff3ce });
     function addFixture(x, z){
-      const fixture = new THREE.Mesh(new THREE.PlaneGeometry(CELL*0.5, CELL*0.16), fixtureMat);
+      const fixture = new THREE.Mesh(new THREE.PlaneGeometry(CELL*0.5, CELL*0.16), FIXTURE_MAT);
       fixture.rotation.x = Math.PI/2;
       fixture.position.set(x, WALL_H - 0.02, z);
       levelGroup.add(fixture);
     }
 
-    const mobileBoost = isTouchDevice ? 1.55 : 1;
-    mobileBoostG = mobileBoost;
-    activeLights = [];
-
-    ceilLight = new THREE.PointLight(0xfff3ce, 1.0 * mobileBoost, CELL*4, 2);
-    ceilLight.position.set(0, WALL_H-0.3, 0);
-    levelGroup.add(ceilLight);
-    activeLights.push({ light: ceilLight, base: 1.0, phase: Math.random()*100 });
-    addFixture(0, 0);
-    const hemi = new THREE.HemisphereLight(0xcbb36a, 0x2c2410, 0.55 * mobileBoost);
-    levelGroup.add(hemi);
-
-    // a handful of extra lights scattered around so distant corridors
-    // aren't pitch black — every one of them flickers too (see main loop),
-    // not just the light nearest the spawn point.
-    const lightRng = mulberry32((seed + level*97 + 555) >>> 0);
-    const extraLightCount = Math.max(3, Math.floor(mazeSize*mazeSize/9));
-    for (let i=0;i<extraLightCount;i++){
-      const lx = Math.floor(lightRng()*mazeSize), ly = Math.floor(lightRng()*mazeSize);
-      const l = new THREE.PointLight(0xf5e6ad, 0.65 * mobileBoost, CELL*3.4, 2);
-      l.position.set(worldX(lx), WALL_H-0.4, worldZ(ly));
-      levelGroup.add(l);
-      activeLights.push({ light: l, base: 0.65, phase: Math.random()*100 });
-      addFixture(worldX(lx), worldZ(ly));
+    // Lay the rooms out left to right, each centered on its own X offset,
+    // all sharing the same Z centerline (works out exactly since every
+    // MAZE_SIZES entry is odd, so each room's middle row sits at Z=0).
+    const offsets = [0];
+    for (let i=1;i<MAZE_SIZES.length;i++){
+      offsets.push(offsets[i-1] + MAZE_SIZES[i-1]*CELL/2 + CONNECTOR_GAP + MAZE_SIZES[i]*CELL/2);
     }
 
-    const spawnA = { x: worldX(0), z: worldZ(0) };
-    const spawnB = { x: worldX(mazeSize-1), z: worldZ(mazeSize-1) };
-    const ex = Math.floor(mazeSize/2), ey = Math.floor(mazeSize/2);
-    const exitCellCenter = { x: worldX(ex), z: worldZ(ey) };
+    for (let i=0;i<MAZE_SIZES.length;i++){
+      const level = i + 1;
+      const size = MAZE_SIZES[i];
+      const total = size * CELL;
+      const offsetX = offsets[i];
+      const cells = generateMaze(seed + level*97, size);
 
-    // The exit is a locked door, not a pad floating in open space — it sits
-    // flush in the wall gap between the exit cell and whichever neighbor is
-    // actually open (like a real doorway between two rooms), and only opens
-    // once every scattered object in this level has been picked up.
-    const exitCell = cells[ey][ex];
-    let doorAxisNS = true, doorX = exitCellCenter.x, doorZ = exitCellCenter.z;
-    if (!exitCell.N && ey > 0){ doorAxisNS = true; doorZ = exitCellCenter.z - CELL/2; }
-    else if (!exitCell.S && ey < mazeSize-1){ doorAxisNS = true; doorZ = exitCellCenter.z + CELL/2; }
-    else if (!exitCell.E && ex < mazeSize-1){ doorAxisNS = false; doorX = exitCellCenter.x + CELL/2; }
-    else if (!exitCell.W && ex > 0){ doorAxisNS = false; doorX = exitCellCenter.x - CELL/2; }
-    exitPos = { x: doorX, z: doorZ };
-    doorGroup = buildDoor();
-    doorGroup.position.set(doorX, 0, doorZ);
-    doorGroup.rotation.y = doorAxisNS ? 0 : Math.PI/2;
-    levelGroup.add(doorGroup);
-    const doorHalfLong = CELL/2, doorHalfShort = 0.14;
-    doorBoxRef = doorAxisNS
-      ? { minX: doorX-doorHalfLong, maxX: doorX+doorHalfLong, minZ: doorZ-doorHalfShort, maxZ: doorZ+doorHalfShort }
-      : { minX: doorX-doorHalfShort, maxX: doorX+doorHalfShort, minZ: doorZ-doorHalfLong, maxZ: doorZ+doorHalfLong };
-    wallBoxes.push(doorBoxRef);
+      const floorMat = new THREE.MeshStandardMaterial({ map: FLOOR_TEXTURE.clone(), roughness: 1 });
+      floorMat.map.needsUpdate = true;
+      floorMat.map.wrapS = floorMat.map.wrapT = THREE.RepeatWrapping;
+      floorMat.map.repeat.set(total / 1.3, total / 1.3);
 
-    // Scatter the objects you need to find before the door will open, in
-    // open cells away from both spawns and the door itself.
-    itemsTotal = ITEM_COUNTS[Math.min(level-1, ITEM_COUNTS.length-1)];
-    itemsCollected = 0;
-    items = [];
-    const itemRng = mulberry32((seed + level*97 + 999) >>> 0);
-    let guard = 0;
-    while (items.length < itemsTotal && guard < 500){
-      guard++;
-      const ix = Math.floor(itemRng()*mazeSize), iy = Math.floor(itemRng()*mazeSize);
-      const tooCloseToSpawnA = ix===0 && iy===0, tooCloseToSpawnB = ix===mazeSize-1 && iy===mazeSize-1;
-      const isDoorCell = ix===ex && iy===ey;
-      const dup = items.some(function(it){ return it.cx===ix && it.cy===iy; });
-      if (tooCloseToSpawnA || tooCloseToSpawnB || isDoorCell || dup) continue;
-      const ipos = { x: worldX(ix), z: worldZ(iy) };
-      const mesh = buildItemMesh();
-      mesh.position.set(ipos.x, 0.9, ipos.z);
-      levelGroup.add(mesh);
-      items.push({ cx: ix, cy: iy, x: ipos.x, z: ipos.z, mesh: mesh, collected: false });
+      const ceilMat = new THREE.MeshStandardMaterial({
+        map: CEIL_TEXTURE.clone(), roughness: 0.9, emissive: 0x3a3013, emissiveIntensity: 0.1
+      });
+      ceilMat.map.needsUpdate = true;
+      ceilMat.map.wrapS = ceilMat.map.wrapT = THREE.RepeatWrapping;
+      ceilMat.map.repeat.set(total / 1.2, total / 1.2);
+
+      const half = total / 2;
+      const worldX = function(cx){ return offsetX - half + CELL/2 + cx*CELL; };
+      const worldZ = function(cy){ return -half + CELL/2 + cy*CELL; };
+
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(total, total), floorMat);
+      floor.rotation.x = -Math.PI/2; floor.position.set(offsetX, 0, 0);
+      levelGroup.add(floor);
+
+      const ceil = new THREE.Mesh(new THREE.PlaneGeometry(total, total), ceilMat);
+      ceil.rotation.x = Math.PI/2; ceil.position.set(offsetX, WALL_H, 0);
+      levelGroup.add(ceil);
+
+      // Same seed on both clients so the blood shows up on the same walls
+      // for both players, not just randomly per-browser.
+      const bloodRng = mulberry32((seed + level*97 + 4242) >>> 0);
+      function addWall(x, z, horizontal){
+        const mesh = new THREE.Mesh(horizontal ? wallGeomH : wallGeomV, WALL_MAT);
+        mesh.position.set(x, WALL_H/2, z);
+        levelGroup.add(mesh);
+        const hx = horizontal ? CELL/2 : 0.12, hz = horizontal ? 0.12 : CELL/2;
+        wallBoxes.push({ minX:x-hx, maxX:x+hx, minZ:z-hz, maxZ:z+hz });
+        if (bloodRng() < 0.17){
+          const decalW = CELL * (0.45 + bloodRng()*0.4);
+          const decalH = WALL_H * (0.5 + bloodRng()*0.4);
+          const decal = new THREE.Mesh(new THREE.PlaneGeometry(decalW, decalH), BLOOD_MAT);
+          const yOff = WALL_H - decalH/2 - 0.05;
+          const along = (bloodRng()-0.5) * (CELL - decalW*0.6);
+          const face = bloodRng() > 0.5 ? 1 : -1;
+          if (horizontal){
+            decal.position.set(x + along, yOff, z + face*0.11);
+            if (face < 0) decal.rotation.y = Math.PI;
+          } else {
+            decal.position.set(x + face*0.11, yOff, z + along);
+            decal.rotation.y = face > 0 ? Math.PI/2 : -Math.PI/2;
+          }
+          levelGroup.add(decal);
+        }
+      }
+
+      // Fixed doorway cells: exit always on the E side (rightmost column,
+      // middle row); entry (rooms after the first) always on the W side —
+      // forced open regardless of the generated maze, so every room lines
+      // up cleanly with its neighbor's connector.
+      const ex = size - 1, ey = Math.floor(size/2);
+      const enx = 0, eny = Math.floor(size/2);
+
+      for (let y=0;y<size;y++){
+        for (let x=0;x<size;x++){
+          const c = cells[y][x];
+          const cx = worldX(x), cz = worldZ(y);
+          const isEntryOpening = (i > 0 && x === enx && y === eny);
+          const isExitOpening = (x === ex && y === ey);
+          if (c.N) addWall(cx, cz - CELL/2, true);
+          if (c.W && !isEntryOpening) addWall(cx - CELL/2, cz, false);
+          if (x === size-1 && c.E && !isExitOpening) addWall(cx + CELL/2, cz, false);
+          if (y === size-1 && c.S) addWall(cx, cz + CELL/2, true);
+        }
+      }
+
+      const ceilLight = new THREE.PointLight(0xfff3ce, 1.0 * mobileBoost, CELL*4, 2);
+      ceilLight.position.set(offsetX, WALL_H-0.3, 0);
+      levelGroup.add(ceilLight);
+      activeLights.push({ light: ceilLight, base: 1.0, phase: Math.random()*100 });
+      addFixture(offsetX, 0);
+      const hemi = new THREE.HemisphereLight(0xcbb36a, 0x2c2410, 0.55 * mobileBoost);
+      levelGroup.add(hemi);
+
+      const lightRng = mulberry32((seed + level*97 + 555) >>> 0);
+      const extraLightCount = Math.max(3, Math.floor(size*size/9));
+      for (let li=0; li<extraLightCount; li++){
+        const lx = Math.floor(lightRng()*size), ly = Math.floor(lightRng()*size);
+        const l = new THREE.PointLight(0xf5e6ad, 0.65 * mobileBoost, CELL*3.4, 2);
+        l.position.set(worldX(lx), WALL_H-0.4, worldZ(ly));
+        levelGroup.add(l);
+        activeLights.push({ light: l, base: 0.65, phase: Math.random()*100 });
+        addFixture(worldX(lx), worldZ(ly));
+      }
+
+      // The exit door always blocks X travel (it always sits on the E
+      // boundary now), so its orientation is always the same.
+      const doorX = worldX(ex) + CELL/2, doorZ = worldZ(ey);
+      const doorGroup = buildDoor();
+      doorGroup.position.set(doorX, 0, doorZ);
+      doorGroup.rotation.y = Math.PI/2;
+      levelGroup.add(doorGroup);
+      const doorHalfLong = CELL/2, doorHalfShort = 0.14;
+      const doorBoxRef = { minX: doorX-doorHalfShort, maxX: doorX+doorHalfShort, minZ: doorZ-doorHalfLong, maxZ: doorZ+doorHalfLong };
+      wallBoxes.push(doorBoxRef);
+
+      // Scatter the objects you need to find before the door will open, away
+      // from the room's entrance(s) and the door itself.
+      const itemsTotal = ITEM_COUNTS[Math.min(i, ITEM_COUNTS.length-1)];
+      const zoneItems = [];
+      const itemRng = mulberry32((seed + level*97 + 999) >>> 0);
+      let guard = 0;
+      while (zoneItems.length < itemsTotal && guard < 500){
+        guard++;
+        const ix = Math.floor(itemRng()*size), iy = Math.floor(itemRng()*size);
+        const nearEntryA = i === 0 ? (ix===0 && iy===0) : (ix===enx && iy===eny);
+        const nearEntryB = i === 0 && ix===size-1 && iy===size-1;
+        const isDoorCell = ix===ex && iy===ey;
+        const dup = zoneItems.some(function(it){ return it.cx===ix && it.cy===iy; });
+        if (nearEntryA || nearEntryB || isDoorCell || dup) continue;
+        const ipos = { x: worldX(ix), z: worldZ(iy) };
+        const mesh = buildItemMesh();
+        mesh.position.set(ipos.x, 0.9, ipos.z);
+        levelGroup.add(mesh);
+        const entry = { cx: ix, cy: iy, x: ipos.x, z: ipos.z, mesh: mesh, collected: false };
+        zoneItems.push(entry);
+        allItemMeshes.push(entry);
+      }
+
+      const spawnA = { x: worldX(0), z: worldZ(0) };
+      const spawnB = { x: worldX(size-1), z: worldZ(size-1) };
+      const roomEntry = { x: worldX(enx), z: worldZ(eny) };
+
+      zones.push({
+        index: i, size: size, offsetX: offsetX, total: total,
+        cells: cells, worldX: worldX, worldZ: worldZ,
+        minX: offsetX - half, maxX: offsetX + half,
+        items: zoneItems, itemsCollected: 0, itemsTotal: itemsTotal,
+        doorGroup: doorGroup, doorBoxRef: doorBoxRef, doorUnlocked: false,
+        exitPos: { x: doorX, z: doorZ }, reached: false,
+        entryA: i === 0 ? spawnA : roomEntry,
+        entryB: i === 0 ? spawnB : roomEntry,
+        monster: null, monsterState: null, monsterSpawnTimer: null
+      });
+
+      if (i > 0){
+        // The connector vestibule between this room and the previous one —
+        // a short stub of floor/ceiling/walls so the doorway doesn't just
+        // open onto a void, with the previous room's door sitting inside it.
+        const prev = zones[i-1];
+        const gapCenterX = (prev.maxX + (offsetX - half)) / 2;
+        const gapWidth = (offsetX - half) - prev.maxX;
+
+        const connFloorMat = new THREE.MeshStandardMaterial({ map: FLOOR_TEXTURE.clone(), roughness: 1 });
+        connFloorMat.map.wrapS = connFloorMat.map.wrapT = THREE.RepeatWrapping;
+        connFloorMat.map.repeat.set(gapWidth / 1.3, CELL / 1.3);
+        const connFloor = new THREE.Mesh(new THREE.PlaneGeometry(gapWidth, CELL), connFloorMat);
+        connFloor.rotation.x = -Math.PI/2; connFloor.position.set(gapCenterX, 0, 0);
+        levelGroup.add(connFloor);
+
+        const connCeilMat = new THREE.MeshStandardMaterial({ map: CEIL_TEXTURE.clone(), roughness: 0.9 });
+        connCeilMat.map.wrapS = connCeilMat.map.wrapT = THREE.RepeatWrapping;
+        connCeilMat.map.repeat.set(gapWidth / 1.2, CELL / 1.2);
+        const connCeil = new THREE.Mesh(new THREE.PlaneGeometry(gapWidth, CELL), connCeilMat);
+        connCeil.rotation.x = Math.PI/2; connCeil.position.set(gapCenterX, WALL_H, 0);
+        levelGroup.add(connCeil);
+
+        const sideGeom = new THREE.BoxGeometry(gapWidth, WALL_H, 0.2);
+        [-1, 1].forEach(function(side){
+          const wall = new THREE.Mesh(sideGeom, WALL_MAT);
+          wall.position.set(gapCenterX, WALL_H/2, side*CELL/2);
+          levelGroup.add(wall);
+          wallBoxes.push({ minX: gapCenterX-gapWidth/2, maxX: gapCenterX+gapWidth/2, minZ: side*CELL/2-0.1, maxZ: side*CELL/2+0.1 });
+        });
+
+        const connLight = new THREE.PointLight(0xf5e6ad, 0.55 * mobileBoost, CELL*3, 2);
+        connLight.position.set(gapCenterX, WALL_H-0.4, 0);
+        levelGroup.add(connLight);
+        activeLights.push({ light: connLight, base: 0.55, phase: Math.random()*100 });
+        addFixture(gapCenterX, 0);
+
+        zoneBoundaries.push(gapCenterX);
+      }
     }
+
     itemsBadge.hidden = false;
-    itemsTotalEl.textContent = String(itemsTotal);
-    itemsCountEl.textContent = '0';
-
-    const startSpawn = myRole === 'B' ? spawnB : spawnA;
-    mySpawnPos = startSpawn;
-    yawObject.position.set(startSpawn.x, EYE_H, startSpawn.z);
-    yawObject.rotation.set(0,0,0);
-    pitchObject.rotation.set(0,0,0);
-
-    levelNum.textContent = String(level);
     bannerEl.hidden = true;
-
-    // Restart the hunt for this level. clearLevel() (called above) wipes
-    // any timer left over from the previous level, so without this the
-    // monster would only ever spawn once, on level 1, and never again
-    // after advancing — which is exactly why it wasn't showing up on 2+.
-    scheduleMonsterSpawn();
   }
 
   // A collectible object: a small glowing crystal that slowly bobs and
@@ -1136,40 +1180,50 @@
   }
 
   function checkItemProximity(){
-    if (!items.length) return;
-    for (let i=0;i<items.length;i++){
-      const it = items[i];
+    const zone = Z();
+    if (!zone || !zone.items.length) return;
+    for (let i=0;i<zone.items.length;i++){
+      const it = zone.items[i];
       if (it.collected) continue;
       const dx = yawObject.position.x - it.x, dz = yawObject.position.z - it.z;
       if (dx*dx + dz*dz < 0.8*0.8){
-        collectItem(i);
-        sendGameEvent('item', { level: currentLevel, index: i });
+        collectItem(zone.index, i);
+        sendGameEvent('item', { level: zone.index, index: i });
       }
     }
   }
 
-  function collectItem(index){
-    const it = items[index];
+  // zoneIndex-based so a peer's 'item' message can be applied to whichever
+  // room they're actually in, even if that's not the room we're in.
+  function collectItem(zoneIndex, index){
+    const zone = zones[zoneIndex];
+    if (!zone) return;
+    const it = zone.items[index];
     if (!it || it.collected) return;
     it.collected = true;
     it.mesh.visible = false;
-    itemsCollected++;
-    itemsCountEl.textContent = String(itemsCollected);
-    if (navigator.vibrate){ try{ navigator.vibrate(40); }catch(e){} }
-    if (itemsCollected >= itemsTotal){
-      unlockDoor();
+    zone.itemsCollected++;
+    if (zoneIndex === currentZoneIndex){
+      itemsCountEl.textContent = String(zone.itemsCollected);
+      if (navigator.vibrate){ try{ navigator.vibrate(40); }catch(e){} }
+    }
+    if (zone.itemsCollected >= zone.itemsTotal){
+      unlockDoor(zoneIndex);
     }
   }
 
-  function unlockDoor(){
-    if (doorUnlocked || !doorGroup) return;
-    doorUnlocked = true;
-    if (doorBoxRef){
-      const idx = wallBoxes.indexOf(doorBoxRef);
+  function unlockDoor(zoneIndex){
+    const zone = zones[zoneIndex];
+    if (!zone || zone.doorUnlocked || !zone.doorGroup) return;
+    zone.doorUnlocked = true;
+    if (zone.doorBoxRef){
+      const idx = wallBoxes.indexOf(zone.doorBoxRef);
       if (idx >= 0) wallBoxes.splice(idx, 1);
     }
-    doorGroup.userData.indicators.forEach(function(ind){ ind.material.color.setHex(0x4be05a); });
-    pushLog('sys', null, 'La puerta se desbloqueó — ¡vayan a la salida!');
+    zone.doorGroup.userData.indicators.forEach(function(ind){ ind.material.color.setHex(0x4be05a); });
+    if (zoneIndex === currentZoneIndex){
+      pushLog('sys', null, 'La puerta se desbloqueó — ¡vayan a la salida!');
+    }
   }
 
   function resolveWallCollisions(pos, radius){
@@ -1189,55 +1243,51 @@
     }
   }
 
+  // The map is one continuous world now, so walking from room to room needs
+  // no event at all — switchToZone() (called from updateMovement) handles
+  // that the instant your position crosses into the next room. The only
+  // thing this still watches for is a locked door in your CURRENT room
+  // (to show the "faltan objetos" hint) and the very last room's door,
+  // which ends the game instead of leading anywhere further.
   let lastDoorHint = -999;
   function checkExitProximity(){
-    if (levelReached || !exitPos) return;
-    const dx = yawObject.position.x - exitPos.x, dz = yawObject.position.z - exitPos.z;
-    if (dx*dx + dz*dz < 1.1*1.1){
-      if (!doorUnlocked){
+    const zone = Z();
+    if (!zone || !zone.exitPos || zone.reached) return;
+    const dx = yawObject.position.x - zone.exitPos.x, dz = yawObject.position.z - zone.exitPos.z;
+    if (dx*dx + dz*dz < 1.3*1.3){
+      if (!zone.doorUnlocked){
         const now = performance.now();
         if (now - lastDoorHint > 4000){
           lastDoorHint = now;
-          pushLog('sys', null, 'La puerta está cerrada — faltan objetos por encontrar (' + itemsCollected + '/' + itemsTotal + ').');
+          pushLog('sys', null, 'La puerta está cerrada — faltan objetos por encontrar (' + zone.itemsCollected + '/' + zone.itemsTotal + ').');
         }
         return;
       }
-      levelReached = true;
-      sendGameEvent('exit', { level: currentLevel });
-      // A short beat to actually walk through the open doorway before the
-      // screen cuts to the next room, instead of transitioning the instant
-      // you brush past it.
-      setTimeout(advanceLevel, 380);
+      if (zone.index === zones.length - 1){
+        zone.reached = true;
+        sendGameEvent('exit', { level: zone.index });
+        // A short beat to actually walk through the open doorway before the
+        // win screen shows, instead of cutting the instant you brush past it.
+        setTimeout(showWin, 380);
+      }
     }
   }
 
-  function onPeerExit(level){
-    if (level !== currentLevel || levelReached) return;
-    levelReached = true;
-    pushLog('sys', null, 'Tu compañero encontró la salida. ¡Síguelo!');
-    advanceLevel();
-  }
-
-  function advanceLevel(){
-    bannerTitle.textContent = currentLevel < 3 ? '¡Cruzaron la puerta!' : '¡Escaparon del laberinto!';
-    bannerSub.textContent = currentLevel < 3 ? 'La puerta se cierra detrás de ustedes… entrando a la siguiente sala' : '';
-    bannerEl.hidden = false;
-    exitPointerLockSafely();
-    setTimeout(function(){
-      if (currentLevel >= 3){ showWin(); return; }
-      currentLevel += 1;
-      buildMaze(currentLevel, gameSeed);
-      bannerEl.hidden = true;
-      requestLock();
-    }, 2200);
+  function onPeerExit(){
+    if (gameState !== 'playing') return;
+    pushLog('sys', null, 'Tu compañero encontró la salida final. ¡Escaparon juntos!');
+    showWin();
   }
 
   function showWin(){
+    if (gameState === 'win') return;
     gameState = 'win';
     clearTimeout(screamerTimer);
-    clearTimeout(monsterSpawnTimer);
-    if (monster) monster.visible = false;
-    monsterState = null;
+    zones.forEach(function(zone){
+      clearTimeout(zone.monsterSpawnTimer);
+      if (zone.monster) zone.monster.visible = false;
+      zone.monsterState = null;
+    });
     screenWin.hidden = false;
     hud.hidden = true; crosshair.hidden = true; comms.hidden = true;
     touchControls.hidden = true;
@@ -1395,9 +1445,7 @@
         so there's no networking to keep in sync.
   ============================================================ */
   let screamerTimer = null;   // kept only for showWin() to clear on the win screen
-  let monster = null;         // THREE.Group, the visible stalker
-  let monsterState = null;    // { path, pathIndex, speed, repathTimer }
-  let monsterSpawnTimer = null;
+  const MONSTER_HEAR_DIST = 16; // how far away its chase theme starts to fade in
 
   // The level-1 screamer photo, loaded once and reused as a camera-facing
   // billboard (see buildMonster / updateMonster) so it's literally the
@@ -1449,67 +1497,77 @@
     return grp;
   }
 
-  // Which grid cell a world position falls in — the inverse of buildMaze's
-  // worldX()/worldZ(), used so the monster can re-path from wherever it and
-  // the player currently stand.
-  function cellOfWorld(x, z){
-    const half = mazeSize * CELL / 2;
-    const cx = Math.round((x + half - CELL / 2) / CELL);
+  // Which grid cell a world position falls in, LOCAL to the given zone —
+  // the inverse of that zone's worldX()/worldZ(), used so the monster can
+  // re-path from wherever it and the player currently stand.
+  function cellOfWorldInZone(zone, x, z){
+    const half = zone.size * CELL / 2;
+    const cx = Math.round((x - zone.offsetX + half - CELL / 2) / CELL);
     const cy = Math.round((z + half - CELL / 2) / CELL);
-    return { x: clamp(cx, 0, mazeSize - 1), y: clamp(cy, 0, mazeSize - 1) };
+    return { x: clamp(cx, 0, zone.size - 1), y: clamp(cy, 0, zone.size - 1) };
   }
 
+  // Only the room the player is CURRENTLY in ever runs its monster's spawn
+  // timer — entering a room always gives you a fresh calm period, and a
+  // room you've left just goes quiet (see switchToZone).
   function scheduleMonsterSpawn(){
-    clearTimeout(monsterSpawnTimer);
+    const zone = Z();
+    if (!zone) return;
+    clearTimeout(zone.monsterSpawnTimer);
     const delay = 12000 + Math.random()*10000; // 12-22s of calm before the hunt starts
-    monsterSpawnTimer = setTimeout(spawnMonster, delay);
+    zone.monsterSpawnTimer = setTimeout(function(){ spawnMonsterForZone(zone); }, delay);
   }
 
-  function spawnMonster(){
-    if (gameState !== 'playing' || !mazeCells){ scheduleMonsterSpawn(); return; }
-    if (!monster){ monster = buildMonster(currentLevel); levelGroup.add(monster); }
-    const playerCell = cellOfWorld(yawObject.position.x, yawObject.position.z);
+  function spawnMonsterForZone(zone){
+    // Stale timer from a room we've since left — drop it; re-entering that
+    // room later reschedules a fresh one.
+    if (gameState !== 'playing' || zone !== Z()) return;
+    if (!zone.monster){ zone.monster = buildMonster(zone.index + 1); levelGroup.add(zone.monster); }
+    const playerCell = cellOfWorldInZone(zone, yawObject.position.x, yawObject.position.z);
     // Try a few random spawn cells and pick whichever is FARTHEST from the
     // player by actual corridor distance, so it appears far away and has
     // to visibly close the distance rather than popping up next to you.
     let best = null;
     for (let i = 0; i < 8; i++){
-      const cand = { x: Math.floor(Math.random()*mazeSize), y: Math.floor(Math.random()*mazeSize) };
-      const path = bfsPath(mazeCells, mazeSize, cand, playerCell);
+      const cand = { x: Math.floor(Math.random()*zone.size), y: Math.floor(Math.random()*zone.size) };
+      const path = bfsPath(zone.cells, zone.size, cand, playerCell);
       if (path.length > 1 && (!best || path.length > best.path.length)){
         best = { cell: cand, path: path };
       }
     }
     if (!best) { scheduleMonsterSpawn(); return; }
-    monsterState = { path: best.path, pathIndex: 1, speed: 3.6, repathTimer: 0 };
-    monster.position.set(worldXG(best.cell.x), 0, worldZG(best.cell.y));
-    monster.visible = true;
+    zone.monsterState = { path: best.path, pathIndex: 1, speed: 3.6, repathTimer: 0 };
+    zone.monster.position.set(zone.worldX(best.cell.x), 0, zone.worldZ(best.cell.y));
+    zone.monster.visible = true;
   }
 
   function despawnMonster(){
-    if (monster) monster.visible = false;
-    monsterState = null;
+    const zone = Z();
+    if (!zone) return;
+    if (zone.monster) zone.monster.visible = false;
+    zone.monsterState = null;
     scheduleMonsterSpawn();
   }
 
   function updateMonster(delta){
-    if (gameState !== 'playing' || !monster || !monsterState) return;
-    const st = monsterState;
+    const zone = Z();
+    if (gameState !== 'playing' || !zone || !zone.monster || !zone.monsterState) return;
+    const monster = zone.monster, st = zone.monsterState;
 
     // Re-path toward the player's CURRENT cell periodically — they're
     // moving too, so a one-shot path from spawn time would go stale.
     st.repathTimer += delta;
     if (st.repathTimer > 0.6){
       st.repathTimer = 0;
-      const from = cellOfWorld(monster.position.x, monster.position.z);
-      const to = cellOfWorld(yawObject.position.x, yawObject.position.z);
-      const path = bfsPath(mazeCells, mazeSize, from, to);
+      const from = cellOfWorldInZone(zone, monster.position.x, monster.position.z);
+      const to = cellOfWorldInZone(zone, yawObject.position.x, yawObject.position.z);
+      const path = bfsPath(zone.cells, zone.size, from, to);
       if (path.length) { st.path = path; st.pathIndex = Math.min(1, path.length - 1); }
     }
 
     if (st.pathIndex < st.path.length){
       const target = st.path[st.pathIndex];
-      const tx = worldXG(target.x), tz = worldZG(target.y);
+      const tx = zone.worldX(target.x), tz = zone.worldZ(target.y);
       const dx = tx - monster.position.x, dz = tz - monster.position.z;
       const dist = Math.hypot(dx, dz);
       const step = st.speed * delta;
@@ -1547,14 +1605,32 @@
     }
   }
 
+  // The screamer's chase theme — silent while it's not actively hunting
+  // you, and louder the closer it gets. Runs every frame regardless of
+  // monster state so it always settles back to silence on its own.
+  function updateMonsterAudio(){
+    if (!monsterThemeGain) return;
+    const zone = Z();
+    const monster = zone && zone.monster;
+    if (!monster || !monster.visible){
+      monsterThemeGain.gain.value = 0;
+      if (monsterTheme && !monsterTheme.paused) monsterTheme.pause();
+      return;
+    }
+    if (monsterTheme && monsterTheme.paused){ monsterTheme.play().catch(function(){}); }
+    const dx = monster.position.x - yawObject.position.x, dz = monster.position.z - yawObject.position.z;
+    const t = clamp(1 - Math.hypot(dx, dz) / MONSTER_HEAR_DIST, 0, 1);
+    monsterThemeGain.gain.value = Math.pow(t, 1.6);
+  }
+
   function catchPlayer(){
     triggerScreamer();
     despawnMonster();
     respawnPlayer();
   }
 
-  // Sends the player back to their spawn point in the CURRENT level —
-  // "dying" doesn't lose progress on the level, it just resets position.
+  // Sends the player back to their spawn/entry point in the CURRENT room —
+  // "dying" doesn't lose progress, it just resets position within it.
   function respawnPlayer(){
     if (!mySpawnPos) return;
     yawObject.position.set(mySpawnPos.x, EYE_H, mySpawnPos.z);
@@ -1563,20 +1639,22 @@
   }
 
   function triggerScreamer(){
-    // From level 2 on, the catch shows the uploaded rotating 3D bust clip
+    // From room 2 on, the catch shows the uploaded rotating 3D bust clip
     // instead of the static photo — a longer flash so the "in 3D" turntable
     // actually reads before it cuts away.
-    const useVideo = currentLevel >= 2;
+    const useVideo = currentZoneIndex >= 1;
     screamerImg.hidden = useVideo;
     screamerVideo.hidden = !useVideo;
     if (useVideo){
       try{ screamerVideo.currentTime = 0; screamerVideo.play().catch(function(){}); }catch(e){}
     }
     screamerOverlay.classList.add('show');
-    // Duck the background music so only the scream is heard, then bring
-    // the music back once the jumpscare is over.
+    // Duck the background music (and the screamer's own chase theme) so
+    // only the scream is heard, then bring the music back afterward.
     const wasMusicPlaying = !!(bgMusic && !bgMusic.paused);
     if (bgMusic) bgMusic.pause();
+    if (monsterThemeGain) monsterThemeGain.gain.value = 0;
+    if (monsterTheme && !monsterTheme.paused) monsterTheme.pause();
     playCatchSound();
     if (navigator.vibrate){ try{ navigator.vibrate([70,40,120]); }catch(e){} }
     setTimeout(function(){
@@ -1683,6 +1761,8 @@
     lastShotAt = now;
     playGunshotSound();
     muzzleFlashFx();
+    const zone = Z();
+    const monster = zone && zone.monster;
     if (!monster || !monster.visible) return;
     raycaster.setFromCamera({ x: 0, y: 0 }, camera);
     const hits = raycaster.intersectObject(monster, true);
@@ -1902,6 +1982,10 @@
       pos.addScaledVector(right, mx * speed * delta);
       resolveWallCollisions(pos, 0.42);
     }
+    if (zones.length){
+      const zi = zoneIndexForX(yawObject.position.x);
+      if (zi !== currentZoneIndex) switchToZone(zi);
+    }
     checkItemProximity();
     checkExitProximity();
   }
@@ -1965,7 +2049,7 @@
   function pauseGame(){
     gameState = 'paused';
     screenPause.hidden = false;
-    $('pauseSub').textContent = 'Laberinto ' + currentLevel + ' de 3';
+    $('pauseSub').textContent = 'Laberinto ' + (currentZoneIndex + 1) + ' de 3';
     hud.hidden = true; crosshair.hidden = true;
     touchControls.hidden = true;
     gunGroup.visible = false;
@@ -2005,6 +2089,7 @@
   ============================================================ */
   let audioCtx = null, gainNode = null, bgMusic = null, bgMusicNode = null;
   let catchScream = null, catchScreamNode = null;
+  let monsterTheme = null, monsterThemeNode = null, monsterThemeGain = null;
   function initAudio(){
     if (!audioCtx){
       try{
@@ -2026,6 +2111,18 @@
         catchScream.crossOrigin = 'anonymous';
         catchScreamNode = audioCtx.createMediaElementSource(catchScream);
         catchScreamNode.connect(gainNode);
+
+        // The screamer's own chase theme — its own gain node so its volume
+        // can be driven by distance (see updateMonsterAudio), on top of the
+        // master volume slider (it still feeds through gainNode for that).
+        monsterTheme = new Audio('monster-theme.mp3');
+        monsterTheme.loop = true;
+        monsterTheme.crossOrigin = 'anonymous';
+        monsterThemeNode = audioCtx.createMediaElementSource(monsterTheme);
+        monsterThemeGain = audioCtx.createGain();
+        monsterThemeGain.gain.value = 0;
+        monsterThemeNode.connect(monsterThemeGain);
+        monsterThemeGain.connect(gainNode);
       }catch(e){ /* audio unavailable, ignore */ }
     }
     if (audioCtx && audioCtx.state === 'suspended'){
@@ -2092,8 +2189,17 @@
     hud.hidden = false; crosshair.hidden = false; comms.hidden = false;
     touchControls.hidden = !isTouchDevice;
     gunGroup.visible = true;
-    currentLevel = 1;
-    buildMaze(currentLevel, gameSeed); // also (re)starts the monster's spawn timer
+    buildWorld(gameSeed);
+    currentZoneIndex = 0;
+    const zone = Z();
+    mySpawnPos = myRole === 'B' ? zone.entryB : zone.entryA;
+    yawObject.position.set(mySpawnPos.x, EYE_H, mySpawnPos.z);
+    yawObject.rotation.set(0, 0, 0);
+    pitchObject.rotation.set(0, 0, 0);
+    levelNum.textContent = '1';
+    itemsTotalEl.textContent = String(zone.itemsTotal);
+    itemsCountEl.textContent = '0';
+    scheduleMonsterSpawn();
     pushLog('sys', null, 'Eres el ' + THEMES[myRole].name + '. Busquen juntos la salida — y cuidado con los sustos.');
     requestLock();
     tryLockLandscape();
@@ -2190,7 +2296,7 @@
         if (gameState === 'playing') pushLog('sys', null, 'Tu compañero se desconectó.');
       } else if (msg.type === 'exit'){
         if (gameState !== 'playing' || msg.role === myRole) return;
-        onPeerExit(msg.level);
+        onPeerExit();
       } else if (msg.type === 'pos'){
         if (msg.role === myRole) return;
         if (gameState === 'playing') updatePeerAvatarTarget(msg.x, msg.z, msg.ry);
@@ -2198,8 +2304,8 @@
         if (msg.role === myRole) return;
         applyPeerAppearance({ shirt: msg.shirt, pants: msg.pants });
       } else if (msg.type === 'item'){
-        if (msg.role === myRole || msg.level !== currentLevel) return;
-        collectItem(msg.index);
+        if (msg.role === myRole) return;
+        collectItem(msg.level, msg.index);
       } else if (msg.type === 'chat'){
         if (msg.role === myRole) return;
         pushLog('chat', msg.role, String(msg.text || '').slice(0, 200));
@@ -2231,6 +2337,7 @@
     const delta = Math.min(clock.getDelta(), 0.06);
     updateMovement(delta);
     updateMonster(delta);
+    updateMonsterAudio();
 
     if (activeLights.length){
       flickerSeed += delta;
@@ -2242,10 +2349,10 @@
       }
     }
 
-    if (items.length){
+    if (allItemMeshes.length){
       const now = performance.now();
-      for (let i=0;i<items.length;i++){
-        const it = items[i];
+      for (let i=0;i<allItemMeshes.length;i++){
+        const it = allItemMeshes[i];
         if (it.collected) continue;
         it.mesh.position.y = 0.9 + Math.sin(now*0.0022 + i) * 0.08;
         it.mesh.userData.gem.rotation.y += delta * 1.4;
@@ -2253,10 +2360,13 @@
       }
     }
 
-    if (doorGroup && doorUnlocked){
-      const target = -Math.PI * 0.62;
-      doorGroup.userData.openAngle += (target - doorGroup.userData.openAngle) * Math.min(1, delta*2.2);
-      doorGroup.userData.pivot.rotation.y = doorGroup.userData.openAngle;
+    for (let i=0;i<zones.length;i++){
+      const zone = zones[i];
+      if (zone.doorGroup && zone.doorUnlocked){
+        const target = -Math.PI * 0.62;
+        zone.doorGroup.userData.openAngle += (target - zone.doorGroup.userData.openAngle) * Math.min(1, delta*2.2);
+        zone.doorGroup.userData.pivot.rotation.y = zone.doorGroup.userData.openAngle;
+      }
     }
 
     if (peerAvatar && peerAvatar.visible){
