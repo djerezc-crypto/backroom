@@ -1649,10 +1649,7 @@
       try{ screamerVideo.currentTime = 0; screamerVideo.play().catch(function(){}); }catch(e){}
     }
     screamerOverlay.classList.add('show');
-    // Duck the background music (and the screamer's own chase theme) so
-    // only the scream is heard, then bring the music back afterward.
-    const wasMusicPlaying = !!(bgMusic && !bgMusic.paused);
-    if (bgMusic) bgMusic.pause();
+    // Duck the screamer's own chase theme so only the scream is heard.
     if (monsterThemeGain) monsterThemeGain.gain.value = 0;
     if (monsterTheme && !monsterTheme.paused) monsterTheme.pause();
     playCatchSound();
@@ -1660,9 +1657,6 @@
     setTimeout(function(){
       screamerOverlay.classList.remove('show');
       if (useVideo) screamerVideo.pause();
-      if (wasMusicPlaying && bgMusic && gameState === 'playing'){
-        bgMusic.play().catch(function(){});
-      }
     }, useVideo ? 1400 : 550);
   }
 
@@ -2085,9 +2079,10 @@
   });
 
   /* ============================================================
-     10. Background music (starts on user gesture)
+     10. Audio (starts on user gesture) — no ambient background track
+     any more, just the jumpscare scream and the screamer's own chase theme.
   ============================================================ */
-  let audioCtx = null, gainNode = null, bgMusic = null, bgMusicNode = null;
+  let audioCtx = null, gainNode = null;
   let catchScream = null, catchScreamNode = null;
   let monsterTheme = null, monsterThemeNode = null, monsterThemeGain = null;
   function initAudio(){
@@ -2097,14 +2092,6 @@
         gainNode = audioCtx.createGain();
         gainNode.gain.value = volume/100 * 0.6;
         gainNode.connect(audioCtx.destination);
-
-        bgMusic = new Audio('music.mp3');
-        bgMusic.loop = true;
-        bgMusic.crossOrigin = 'anonymous';
-        // Routed through the WebAudio graph (via gainNode) so the volume
-        // slider controls it exactly like it controls the jumpscare sound.
-        bgMusicNode = audioCtx.createMediaElementSource(bgMusic);
-        bgMusicNode.connect(gainNode);
 
         // The uploaded scream, played on getting caught (see triggerScreamer).
         catchScream = new Audio('catch-scream.mp3');
@@ -2127,9 +2114,6 @@
     }
     if (audioCtx && audioCtx.state === 'suspended'){
       audioCtx.resume().catch(function(){});
-    }
-    if (bgMusic && bgMusic.paused){
-      bgMusic.play().catch(function(){ /* will retry on the next gesture */ });
     }
   }
   function applyVolume(){
